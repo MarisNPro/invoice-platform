@@ -1,0 +1,365 @@
+// ============================================================
+// EU Invoice Platform — Prisma Schema
+// EN 16931 compliant, multi-tenant, PostgreSQL 16
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  ACCOUNTANT
+  VIEWER
+}
+
+enum InvoiceType {
+  INVOICE
+  CREDIT_NOTE
+  DEBIT_NOTE
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  OVERDUE
+  CANCELLED
+  VOID
+}
+
+enum AddressType {
+  BILLING
+  SHIPPING
+  REGISTERED
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  CREDIT_CARD
+  DIRECT_DEBIT
+  CASH
+  OTHER
+}
+
+enum ImportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// ── Tenant ───────────────────────────────────────────────────────────────────
+
+model Tenant {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique
+  vatNumber String?
+  country   String   @db.Char(2)
+  locale    String   @default("en") @db.VarChar(5)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users           User[]
+  invoices        Invoice[]
+  contacts        Contact[]
+  products        Product[]
+  taxRates        TaxRate[]
+  invoiceCounters InvoiceCounter[]
+  bankAccounts    BankAccount[]
+  importArchives  ImportArchive[]
+  auditLogs       AuditLog[]
+
+  @@map("tenants")
+}
+
+// ── User ─────────────────────────────────────────────────────────────────────
+
+model User {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @db.Uuid
+  keycloakId String   @unique
+  email      String
+  name       String
+  role       Role     @default(VIEWER)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  invoices Invoice[]
+
+  @@unique([tenantId, email])
+  @@index([keycloakId])
+  @@map("users")
+}
+
+// ── Contact (customer / supplier) ────────────────────────────────────────────
+
+model Contact {
+  id             String  @id @default(uuid()) @db.Uuid
+  tenantId       String  @db.Uuid
+  name           String
+  businessId     String? // national business registration number
+  vatNumber      String?
+  country        String  @db.Char(2)
+  email          String?
+  phone          String?
+  iban           String?
+  bic            String?
+  isSupplier     Boolean @default(false)
+  isCustomer     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant         Tenant    @relation(fields: [tenantId], references: [id])
+  addresses      Address[]
+  buyerInvoices  Invoice[] @relation("BuyerContact")
+  sellerInvoices Invoice[] @relation("SellerContact")
+
+  @@index([tenantId, country])
+  @@index([tenantId, vatNumber])
+  @@map("contacts")
+}
+
+model Address {
+  id         String      @id @default(uuid()) @db.Uuid
+  contactId  String      @db.Uuid
+  type       AddressType @default(BILLING)
+  street     String
+  city       String
+  postalCode String
+  country    String      @db.Char(2)
+  isDefault  Boolean     @default(false)
+  createdAt  DateTime    @default(now())
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@map("addresses")
+}
+
+// ── Product catalogue ─────────────────────────────────────────────────────────
+
+model Product {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @db.Uuid
+  code        String
+  name        String
+  description String?
+  unit        String   @default("PCS") @db.VarChar(10)
+  unitPrice   Decimal  @db.Decimal(18, 6)
+  taxRateId   String?  @db.Uuid
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant        @relation(fields: [tenantId], references: [id])
+  taxRate     TaxRate?      @relation(fields: [taxRateId], references: [id])
+  invoiceLines InvoiceLine[]
+
+  @@unique([tenantId, code])
+  @@map("products")
+}
+
+// ── Tax rates (EN 16931 category codes) ──────────────────────────────────────
+
+model TaxRate {
+  id           String  @id @default(uuid()) @db.Uuid
+  tenantId     String  @db.Uuid
+  name         String
+  /// Fractional rate e.g. 0.2000 = 20%
+  rate         Decimal @db.Decimal(5, 4)
+  /// EN 16931 tax category code: S, Z, E, AE, K, G, O, L, M
+  categoryCode String  @db.VarChar(2)
+  isDefault    Boolean @default(false)
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  products     Product[]
+  invoiceLines InvoiceLine[]
+
+  @@map("tax_rates")
+}
+
+// ── Atomic invoice counter ────────────────────────────────────────────────────
+// The next_invoice_number() PG function does atomic UPSERT on this table.
+
+model InvoiceCounter {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @db.Uuid
+  prefix   String @db.VarChar(10)
+  year     Int    @db.SmallInt
+  last     Int    @default(0)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, prefix, year])
+  @@map("invoice_counters")
+}
+
+// ── Invoice ───────────────────────────────────────────────────────────────────
+
+model Invoice {
+  id             String        @id @default(uuid()) @db.Uuid
+  tenantId       String        @db.Uuid
+  number         String
+  type           InvoiceType   @default(INVOICE)
+  status         InvoiceStatus @default(DRAFT)
+  sellerId       String        @db.Uuid
+  buyerId        String        @db.Uuid
+  issuedAt       DateTime      @db.Date
+  dueAt          DateTime      @db.Date
+  currencyCode   String        @default("EUR") @db.Char(3)
+  buyerReference String?
+  orderReference String?
+  projectCode    String?
+  note           String?       @db.Text
+
+  // EN 16931 UBL fields
+  ublXml         String?       @db.Text
+  pdfKey         String?       // S3 object key
+
+  // Denormalised totals (recomputed by trigger or service)
+  subtotal       Decimal       @default(0) @db.Decimal(18, 2)
+  taxAmount      Decimal       @default(0) @db.Decimal(18, 2)
+  total          Decimal       @default(0) @db.Decimal(18, 2)
+
+  createdById    String?       @db.Uuid
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  tenant      Tenant        @relation(fields: [tenantId], references: [id])
+  seller      Contact       @relation("SellerContact", fields: [sellerId], references: [id])
+  buyer       Contact       @relation("BuyerContact", fields: [buyerId], references: [id])
+  createdBy   User?         @relation(fields: [createdById], references: [id])
+  lines       InvoiceLine[]
+  payments    Payment[]
+  attachments Attachment[]
+  auditLogs   AuditLog[]
+
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@index([tenantId, buyerId])
+  @@index([tenantId, dueAt])
+  @@map("invoices")
+}
+
+model InvoiceLine {
+  id          String   @id @default(uuid()) @db.Uuid
+  invoiceId   String   @db.Uuid
+  lineNumber  Int      @db.SmallInt
+  productId   String?  @db.Uuid
+  description String
+  quantity    Decimal  @db.Decimal(18, 6)
+  unit        String   @default("PCS") @db.VarChar(10)
+  unitPrice   Decimal  @db.Decimal(18, 6)
+  /// Discount fraction 0–1
+  discount    Decimal  @default(0) @db.Decimal(5, 4)
+  taxRateId   String?  @db.Uuid
+  lineTotal   Decimal  @db.Decimal(18, 2)
+  taxAmount   Decimal  @db.Decimal(18, 2)
+  /// EN 16931 line note
+  note        String?
+
+  invoice Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id])
+  taxRate TaxRate? @relation(fields: [taxRateId], references: [id])
+
+  @@map("invoice_lines")
+}
+
+// ── Payment ───────────────────────────────────────────────────────────────────
+
+model Payment {
+  id        String        @id @default(uuid()) @db.Uuid
+  invoiceId String        @db.Uuid
+  amount    Decimal       @db.Decimal(18, 2)
+  method    PaymentMethod @default(BANK_TRANSFER)
+  reference String?
+  paidAt    DateTime
+  createdAt DateTime      @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@map("payments")
+}
+
+// ── Bank account ──────────────────────────────────────────────────────────────
+
+model BankAccount {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @db.Uuid
+  iban      String
+  bic       String?
+  bankName  String?
+  currency  String   @default("EUR") @db.Char(3)
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("bank_accounts")
+}
+
+// ── Attachment ────────────────────────────────────────────────────────────────
+
+model Attachment {
+  id        String   @id @default(uuid()) @db.Uuid
+  invoiceId String   @db.Uuid
+  fileName  String
+  mimeType  String
+  s3Key     String
+  sizeBytes Int
+  createdAt DateTime @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("attachments")
+}
+
+// ── Audit log ─────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @db.Uuid
+  invoiceId String?  @db.Uuid
+  userId    String?
+  action    String   @db.VarChar(64)
+  payload   Json?
+  ipAddress String?  @db.VarChar(45)
+  createdAt DateTime @default(now())
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id])
+  invoice Invoice? @relation(fields: [invoiceId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([invoiceId])
+  @@map("audit_logs")
+}
+
+// ── Import archive ────────────────────────────────────────────────────────────
+
+model ImportArchive {
+  id          String       @id @default(uuid()) @db.Uuid
+  tenantId    String       @db.Uuid
+  fileName    String
+  s3Key       String
+  status      ImportStatus @default(PENDING)
+  recordCount Int?
+  errorCount  Int?
+  errors      Json?
+  createdAt   DateTime     @default(now())
+  completedAt DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, status])
+  @@map("import_archives")
+}
