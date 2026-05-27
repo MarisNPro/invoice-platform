@@ -28,6 +28,17 @@
       "outputs": ["node_modules/.prisma/**"]
     },
     "db:migrate": {
+      "cache": false,
+      "dependsOn": ["db:generate"]
+    },
+    "db:migrate:dev": {
+      "cache": false
+    },
+    "db:seed": {
+      "cache": false,
+      "dependsOn": ["db:generate"]
+    },
+    "db:reset": {
       "cache": false
     }
   }

@@ -10,9 +10,15 @@
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:studio": "prisma studio"
+    "db:generate": "prisma generate --schema=./prisma/schema.prisma",
+    "db:migrate": "prisma migrate deploy --schema=./prisma/schema.prisma",
+    "db:migrate:dev": "prisma migrate dev --schema=./prisma/schema.prisma",
+    "db:seed": "prisma db seed",
+    "db:studio": "prisma studio --schema=./prisma/schema.prisma",
+    "db:reset": "prisma migrate reset --schema=./prisma/schema.prisma --force"
+  },
+  "prisma": {
+    "seed": "ts-node --transpile-only --project tsconfig.json prisma/seed.ts"
   },
   "dependencies": {
     "@elastic/elasticsearch": "^8.13.1",
