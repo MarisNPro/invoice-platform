@@ -231,18 +231,23 @@ model Invoice {
   taxAmount      Decimal       @default(0) @db.Decimal(18, 2)
   total          Decimal       @default(0) @db.Decimal(18, 2)
 
+  // EN 16931 BT-20 payment terms note and document language
+  paymentTermsNote String?       @db.Text
+  language         String?       @default("en") @db.VarChar(5)
+
   createdById    String?       @db.Uuid
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  tenant      Tenant        @relation(fields: [tenantId], references: [id])
-  seller      Contact       @relation("SellerContact", fields: [sellerId], references: [id])
-  buyer       Contact       @relation("BuyerContact", fields: [buyerId], references: [id])
-  createdBy   User?         @relation(fields: [createdById], references: [id])
-  lines       InvoiceLine[]
-  payments    Payment[]
-  attachments Attachment[]
-  auditLogs   AuditLog[]
+  tenant        Tenant               @relation(fields: [tenantId], references: [id])
+  seller        Contact              @relation("SellerContact", fields: [sellerId], references: [id])
+  buyer         Contact              @relation("BuyerContact", fields: [buyerId], references: [id])
+  createdBy     User?                @relation(fields: [createdById], references: [id])
+  lines         InvoiceLine[]
+  vatBreakdowns InvoiceVatBreakdown[]
+  payments      Payment[]
+  attachments   Attachment[]
+  auditLogs     AuditLog[]
 
   @@unique([tenantId, number])
   @@index([tenantId, status])
@@ -273,6 +278,27 @@ model InvoiceLine {
   taxRate TaxRate? @relation(fields: [taxRateId], references: [id])
 
   @@map("invoice_lines")
+}
+
+// ── VAT breakdown (one row per tax rate on an invoice) ───────────────────────
+// EN 16931 BG-23 / UBL TaxTotal/TaxSubtotal
+
+model InvoiceVatBreakdown {
+  id              String  @id @default(uuid()) @db.Uuid
+  invoiceId       String  @db.Uuid
+  /// EN 16931 BT-119 — tax category code: S, Z, E, AE, K, G, O, L, M
+  vatCategoryCode String  @db.VarChar(2)
+  /// BT-120 — VAT rate as percentage e.g. 21.00
+  vatRatePercent  Decimal @db.Decimal(5, 2)
+  /// BT-116 — net taxable amount for this rate group
+  taxableAmount   Decimal @db.Decimal(18, 2)
+  /// BT-117 — VAT amount for this rate group
+  taxAmount       Decimal @db.Decimal(18, 2)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_vat_breakdowns")
 }
 
 // ── Payment ───────────────────────────────────────────────────────────────────

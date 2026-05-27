@@ -1,19 +1,25 @@
 import {
   Body,
   Controller,
+  DefaultValuePipe,
   Get,
+  Ip,
   Param,
+  ParseIntPipe,
   ParseUUIDPipe,
   Patch,
   Post,
   Query,
   UseGuards,
+  UsePipes,
+  ValidationPipe,
 } from '@nestjs/common';
 import { InvoiceService } from './invoice.service';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles, Role } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import type { JwtPayload } from '../auth/jwt-payload.interface';
+import { CreateInvoiceBodyDto } from './dto/create-invoice.dto';
 import type { CreateInvoiceDto } from './invoice.types';
 
 @Controller('invoices')
@@ -21,19 +27,41 @@ import type { CreateInvoiceDto } from './invoice.types';
 export class InvoiceController {
   constructor(private readonly invoices: InvoiceService) {}
 
+  // ── POST /api/v1/invoices ─────────────────────────────────────────────────
+  /**
+   * Creates a new DRAFT invoice.
+   * Requires ACCOUNTANT or ADMIN role.
+   * Seller is resolved from the tenantId JWT claim.
+   * All BG-22 totals are computed server-side.
+   */
   @Post()
   @Roles(Role.ADMIN, Role.ACCOUNTANT)
-  create(@Body() dto: CreateInvoiceDto, @CurrentUser() user: JwtPayload) {
-    // Enforce tenant scope from JWT
-    return this.invoices.create({ ...dto, tenantId: user.tenant_id ?? dto.tenantId });
-  }
-
-  @Get()
-  findAll(@CurrentUser() user: JwtPayload, @Query('status') status?: string) {
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  create(
+    @Body() dto:  CreateInvoiceBodyDto,
+    @CurrentUser() user: JwtPayload,
+    @Ip() ip: string,
+  ) {
     const tenantId = user.tenant_id ?? '';
-    return this.invoices.findAll(tenantId, status);
+    return this.invoices.createFromApi(dto, tenantId, user.sub, ip);
   }
 
+  // ── GET /api/v1/invoices ──────────────────────────────────────────────────
+  /**
+   * Lists invoices with pagination. Optional ?status= filter.
+   * Query params: status, page (default 1), limit (default 20).
+   */
+  @Get()
+  findAll(
+    @CurrentUser() user: JwtPayload,
+    @Query('status') status?: string,
+    @Query('page',  new DefaultValuePipe(1),  ParseIntPipe) page  = 1,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
+  ) {
+    return this.invoices.findAll(user.tenant_id ?? '', status, page, limit);
+  }
+
+  // ── GET /api/v1/invoices/:id ──────────────────────────────────────────────
   @Get(':id')
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
@@ -42,6 +70,7 @@ export class InvoiceController {
     return this.invoices.findOne(user.tenant_id ?? '', id);
   }
 
+  // ── PATCH /api/v1/invoices/:id/send ──────────────────────────────────────
   @Patch(':id/send')
   @Roles(Role.ADMIN, Role.ACCOUNTANT)
   markSent(
@@ -51,6 +80,7 @@ export class InvoiceController {
     return this.invoices.markSent(user.tenant_id ?? '', id);
   }
 
+  // ── PATCH /api/v1/invoices/:id/pay ───────────────────────────────────────
   @Patch(':id/pay')
   @Roles(Role.ADMIN, Role.ACCOUNTANT)
   markPaid(
@@ -64,5 +94,12 @@ export class InvoiceController {
       body.amount,
       new Date(body.paidAt),
     );
+  }
+
+  // ── Legacy POST with full internal DTO (kept for internal tooling) ────────
+  @Post('internal')
+  @Roles(Role.ADMIN)
+  createInternal(@Body() dto: CreateInvoiceDto, @CurrentUser() user: JwtPayload) {
+    return this.invoices.create({ ...dto, tenantId: user.tenant_id ?? dto.tenantId });
   }
 }

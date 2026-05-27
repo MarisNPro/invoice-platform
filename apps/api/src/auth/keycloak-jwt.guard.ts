@@ -45,6 +45,35 @@ export class KeycloakJwtGuard implements CanActivate {
     if (isPublic) return true;
 
     const request = context.switchToHttp().getRequest<FastifyRequest>();
+
+    // ── Dev bypass ─────────────────────────────────────────────────────────
+    // When NODE_ENV !== 'production', an `x-dev-tenant-id` header injects a
+    // synthetic admin user — allows testing without a running Keycloak.
+    // NEVER enable in production; the NODE_ENV guard makes it safe.
+    if (
+      process.env.NODE_ENV !== 'production' &&
+      request.headers['x-dev-tenant-id']
+    ) {
+      const tenantId = String(request.headers['x-dev-tenant-id']);
+      (request as FastifyRequest & { user: JwtPayload }).user = {
+        sub:                'dev-user-00000000-0000-0000-0000-000000000001',
+        iat:                0,
+        exp:                9_999_999_999,
+        aud:                this.audience,
+        iss:                this.issuer,
+        email:              'dev@localhost',
+        name:               'Dev User',
+        preferred_username: 'dev',
+        tenant_id:          tenantId,
+        realm_access: {
+          roles: ['invoice-admin', 'invoice-accountant', 'invoice-viewer'],
+        },
+        resource_access: {},
+      };
+      this.logger.warn(`DEV BYPASS — tenant=${tenantId} (never use in production)`);
+      return true;
+    }
+
     const token = this.extractToken(request);
 
     if (!token) {
