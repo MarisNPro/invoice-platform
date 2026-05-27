@@ -141,9 +141,9 @@ async function installFunctions() {
       v_next   INT;
       v_number TEXT;
     BEGIN
-      INSERT INTO invoice_counters (id, tenant_id, prefix, year, last)
+      INSERT INTO invoice_counters (id, "tenantId", prefix, year, last)
       VALUES (gen_random_uuid(), p_tenant_id, p_prefix, p_year, 1)
-      ON CONFLICT (tenant_id, prefix, year)
+      ON CONFLICT ("tenantId", prefix, year)
       DO UPDATE SET last = invoice_counters.last + 1
       RETURNING last INTO v_next;
 
@@ -160,23 +160,23 @@ async function installFunctions() {
 async function upsertTaxRates(tenantId: string) {
   const defs = [
     // Estonia
-    { id: 'tr-ee-22', name: 'EE Standard 22%', rate: 0.22, categoryCode: 'S', isDefault: true },
-    { id: 'tr-ee-09', name: 'EE Reduced 9%',   rate: 0.09, categoryCode: 'S' },
+    { id: '00000000-0000-0000-0001-000000000001', name: 'EE Standard 22%', rate: 0.22, categoryCode: 'S', isDefault: true },
+    { id: '00000000-0000-0000-0001-000000000002', name: 'EE Reduced 9%',   rate: 0.09, categoryCode: 'S' },
     // Finland
-    { id: 'tr-fi-25', name: 'FI Standard 25.5%', rate: 0.255, categoryCode: 'S' },
-    { id: 'tr-fi-14', name: 'FI Reduced 14%',    rate: 0.14,  categoryCode: 'S' },
-    { id: 'tr-fi-10', name: 'FI Reduced 10%',    rate: 0.10,  categoryCode: 'S' },
+    { id: '00000000-0000-0000-0001-000000000003', name: 'FI Standard 25.5%', rate: 0.255, categoryCode: 'S' },
+    { id: '00000000-0000-0000-0001-000000000004', name: 'FI Reduced 14%',    rate: 0.14,  categoryCode: 'S' },
+    { id: '00000000-0000-0000-0001-000000000005', name: 'FI Reduced 10%',    rate: 0.10,  categoryCode: 'S' },
     // Latvia
-    { id: 'tr-lv-21', name: 'LV Standard 21%', rate: 0.21, categoryCode: 'S' },
-    { id: 'tr-lv-12', name: 'LV Reduced 12%',  rate: 0.12, categoryCode: 'S' },
+    { id: '00000000-0000-0000-0001-000000000006', name: 'LV Standard 21%', rate: 0.21, categoryCode: 'S' },
+    { id: '00000000-0000-0000-0001-000000000007', name: 'LV Reduced 12%',  rate: 0.12, categoryCode: 'S' },
     // Lithuania
-    { id: 'tr-lt-21', name: 'LT Standard 21%', rate: 0.21, categoryCode: 'S' },
-    { id: 'tr-lt-09', name: 'LT Reduced 9%',   rate: 0.09, categoryCode: 'S' },
+    { id: '00000000-0000-0000-0001-000000000008', name: 'LT Standard 21%', rate: 0.21, categoryCode: 'S' },
+    { id: '00000000-0000-0000-0001-000000000009', name: 'LT Reduced 9%',   rate: 0.09, categoryCode: 'S' },
     // Zero / Exempt
-    { id: 'tr-zero',  name: 'Zero rated (Z)',      rate: 0,    categoryCode: 'Z' },
-    { id: 'tr-exempt',name: 'Exempt (E)',           rate: 0,    categoryCode: 'E' },
-    { id: 'tr-ae',    name: 'Reverse charge (AE)', rate: 0,    categoryCode: 'AE' },
-    { id: 'tr-ic',    name: 'Intra-community (K)', rate: 0,    categoryCode: 'K' },
+    { id: '00000000-0000-0000-0001-000000000010', name: 'Zero rated (Z)',      rate: 0,    categoryCode: 'Z' },
+    { id: '00000000-0000-0000-0001-000000000011', name: 'Exempt (E)',           rate: 0,    categoryCode: 'E' },
+    { id: '00000000-0000-0000-0001-000000000012', name: 'Reverse charge (AE)', rate: 0,    categoryCode: 'AE' },
+    { id: '00000000-0000-0000-0001-000000000013', name: 'Intra-community (K)', rate: 0,    categoryCode: 'K' },
   ] as const;
 
   return Promise.all(
@@ -194,10 +194,10 @@ async function upsertTaxRates(tenantId: string) {
 
 async function upsertProducts(tenantId: string, defaultTaxRateId?: string) {
   const defs = [
-    { id: 'prod-001', code: 'SRV-CONSULT', name: 'Consulting Services', unitPrice: 120.00, unit: 'HUR' },
-    { id: 'prod-002', code: 'SRV-DEV',     name: 'Software Development', unitPrice: 95.00, unit: 'HUR' },
-    { id: 'prod-003', code: 'LIC-ANNUAL',  name: 'Annual Software License', unitPrice: 1200.00, unit: 'ANN' },
-    { id: 'prod-004', code: 'TRAIN-DAY',   name: 'Training Day',         unitPrice: 800.00, unit: 'DAY' },
+    { id: '00000000-0000-0000-0002-000000000001', code: 'SRV-CONSULT', name: 'Consulting Services',     unitPrice: 120.00,   unit: 'HUR' },
+    { id: '00000000-0000-0000-0002-000000000002', code: 'SRV-DEV',     name: 'Software Development',   unitPrice: 95.00,    unit: 'HUR' },
+    { id: '00000000-0000-0000-0002-000000000003', code: 'LIC-ANNUAL',  name: 'Annual Software License', unitPrice: 1200.00, unit: 'ANN' },
+    { id: '00000000-0000-0000-0002-000000000004', code: 'TRAIN-DAY',   name: 'Training Day',            unitPrice: 800.00,  unit: 'DAY' },
   ];
 
   return Promise.all(
@@ -294,9 +294,9 @@ async function upsertSampleInvoice(
 
   // Bump invoice counter so next auto-assigned number is 00002
   await prisma.$executeRaw`
-    INSERT INTO invoice_counters (id, tenant_id, prefix, year, last)
+    INSERT INTO invoice_counters (id, "tenantId", prefix, year, last)
     VALUES (gen_random_uuid(), ${TENANT_ID}::uuid, 'INV', 2026, 1)
-    ON CONFLICT (tenant_id, prefix, year) DO NOTHING
+    ON CONFLICT ("tenantId", prefix, year) DO NOTHING
   `;
 
   console.log('  ✓ sample invoice INV-2026-00001 created');

@@ -1,69 +1,79 @@
 export type CountryCode = 'FI' | 'EE' | 'LV' | 'LT';
 
+/** Normalised result returned to API consumers */
 export interface CompanyResult {
-  /** Source-specific identifier */
-  id: string;
-  name: string;
-  /** National business registration number */
-  registrationNumber: string;
+  id:         string;
+  country:    string;
+  name:       string;
+  regNumber:  string;
   vatNumber?: string;
-  country: CountryCode;
-  status: 'ACTIVE' | 'INACTIVE' | 'UNKNOWN';
-  address?: {
-    street?: string;
-    city?: string;
-    postalCode?: string;
-    country: string;
-  };
-  /** ISO 8601 */
-  registeredAt?: string;
+  legalForm?: string;
+  address?:   string;
+  status:     string;
+  source:     string;
 }
 
-// ── PRH (Finland) raw shape ────────────────────────────────────────────────
+// ── PRH YTJ v3 (Finland) ─────────────────────────────────────────────────
 
-export interface PrhCompany {
-  businessId: string;
-  name: string;
-  registrationDate?: string;
-  companyForm?: string;
-  detailsUri?: string;
-  businessLine?: { name: string; language: string }[];
-  addresses?: Array<{
-    type: number;
-    street?: string;
-    postCode?: string;
-    city?: string;
-    country?: string;
+export interface PrhV3Company {
+  businessId: { value: string; registrationDate?: string };
+  names: Array<{
+    name:              string;
+    type:              string; // "1" = trade name, "3" = parallel/auxiliary name
+    registrationDate?: string;
+    endDate?:          string; // absent/null = currently active
   }>;
+  companyForms?: Array<{
+    type:         string;
+    descriptions: Array<{ languageCode: string; description: string }>;
+    endDate?:     string;
+  }>;
+  addresses?: Array<{
+    type:       number; // 1 = visiting, 2 = postal
+    street?:    string;
+    postCode?:  string;
+    postOffices?: Array<{ city: string; languageCode: string }>;
+    endDate?:   string;
+  }>;
+  endDate?: string; // present when company is dissolved
+  status?:  string;
+  registrationDate?: string;
 }
 
-export interface PrhSearchResponse {
-  results: PrhCompany[];
-  totalResults: number;
+export interface PrhV3Response {
+  totalResults?: number;
+  companies?:    PrhV3Company[];
 }
 
-// ── Äriregister (Estonia) raw shape ───────────────────────────────────────
+// ── Äriregister autocomplete (Estonia) ───────────────────────────────────
 
-export interface AriregisterSuggestion {
-  ariregistriKood: string;   // registration code
-  nimi: string;              // name
-  aadress?: string;
-  staatus?: string;
+export interface AriregisterAutocompleteResponse {
+  status: string;
+  data:   AriregisterAutocompleteItem[];
 }
 
-// ── Elasticsearch company document ────────────────────────────────────────
+export interface AriregisterAutocompleteItem {
+  company_id:    number;
+  reg_code:      number;
+  name:          string;
+  historical_names?: string[];
+  status:        string; // "R" = active
+  legal_address?: string;
+  zip_code?:     string | null;
+  legal_form?:   string;
+  url?:          string;
+}
+
+// ── Elasticsearch company document (LV / LT) ─────────────────────────────
 
 export interface CompanyDocument {
-  id: string;
-  name: string;
-  nameLower: string;          // for sorting
-  registrationNumber: string;
-  vatNumber?: string;
-  country: CountryCode;
-  status: string;
-  street?: string;
-  city?: string;
-  postalCode?: string;
-  registeredAt?: string;
-  syncedAt: string;
+  id:          string;
+  country:     string;
+  name:        string;
+  regNumber:   string;
+  vatNumber?:  string;
+  legalForm?:  string;
+  address?:    string;
+  status:      string;
+  source:      string;
 }

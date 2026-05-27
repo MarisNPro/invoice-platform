@@ -16,7 +16,7 @@ async function bootstrap() {
   );
 
   const config = app.get(ConfigService);
-  const port = config.get<number>('PORT', 3001);
+  const port = config.get<number>('PORT', 4000);
   const prefix = config.get<string>('API_GLOBAL_PREFIX', 'api/v1');
   const corsOrigins = config.get<string>('CORS_ORIGINS', 'http://localhost:3000').split(',');
 

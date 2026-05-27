@@ -15,7 +15,7 @@ import { CompanyModule } from './company/company.module';
     // Config — loads .env, available everywhere
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env.local', '.env'],
+      envFilePath: ['../../.env.local', '../../.env', '.env.local', '.env'],
       cache: true,
     }),
 

@@ -11,11 +11,14 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "db:generate": "prisma generate --schema=./prisma/schema.prisma",
-    "db:migrate": "prisma migrate deploy --schema=./prisma/schema.prisma",
-    "db:migrate:dev": "prisma migrate dev --schema=./prisma/schema.prisma",
-    "db:seed": "prisma db seed",
-    "db:studio": "prisma studio --schema=./prisma/schema.prisma",
-    "db:reset": "prisma migrate reset --schema=./prisma/schema.prisma --force"
+    "db:migrate": "dotenv -e ../../.env -- prisma migrate deploy --schema=./prisma/schema.prisma",
+    "db:migrate:dev": "dotenv -e ../../.env -- prisma migrate dev --schema=./prisma/schema.prisma",
+    "db:seed": "dotenv -e ../../.env -- prisma db seed",
+    "db:studio": "dotenv -e ../../.env -- prisma studio --schema=./prisma/schema.prisma",
+    "db:reset": "dotenv -e ../../.env -- prisma migrate reset --schema=./prisma/schema.prisma --force",
+    "sync:lv": "ts-node --project tsconfig.json src/company/sync-runner.ts lv",
+    "sync:lt": "ts-node --project tsconfig.json src/company/sync-runner.ts lt",
+    "sync:all": "ts-node --project tsconfig.json src/company/sync-runner.ts all"
   },
   "prisma": {
     "seed": "ts-node --transpile-only --project tsconfig.json prisma/seed.ts"
@@ -31,6 +34,9 @@
     "@prisma/client": "^5.16.0",
     "axios": "^1.7.2",
     "bullmq": "^5.8.1",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "csv-parse": "^5.5.6",
     "fastify": "^4.28.1",
     "ioredis": "^5.4.1",
     "jose": "^5.4.1",
@@ -47,11 +53,19 @@
     "typescript": "^5.4.5"
   },
   "jest": {
-    "moduleFileExtensions": ["js", "json", "ts"],
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
-    "transform": { "^.+\\.(t|j)s$": "ts-jest" },
-    "collectCoverageFrom": ["**/*.(t|j)s"],
+    "transform": {
+      "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "collectCoverageFrom": [
+      "**/*.(t|j)s"
+    ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
   }

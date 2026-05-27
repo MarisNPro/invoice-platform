@@ -147,7 +147,7 @@ services:
 
   # ── BullBoard (BullMQ dashboard) ──────────────────────────────────────────────
   bullboard:
-    image: ghcr.io/felixmosh/bull-board:latest
+    image: deadly0/bull-board:latest
     restart: unless-stopped
     environment:
       <<: *common-env

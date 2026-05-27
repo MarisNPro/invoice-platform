@@ -7,97 +7,105 @@ import type Redis from 'ioredis';
 import { firstValueFrom } from 'rxjs';
 import type {
   CompanyResult,
-  CountryCode,
-  PrhSearchResponse,
-  AriregisterSuggestion,
   CompanyDocument,
+  CountryCode,
+  PrhV3Response,
+  AriregisterAutocompleteResponse,
 } from './company.types';
+
+const CACHE_TTL = 600; // seconds
+
+export const INDEX_LV = 'companies_lv';
+export const INDEX_LT = 'companies_lt';
 
 @Injectable()
 export class CompanyService {
   private readonly logger = new Logger(CompanyService.name);
-  private readonly cacheTtl: number;
-  private readonly prhUrl: string;
-  private readonly ariUrl: string;
-  private readonly esIndex: string;
+  private readonly prhUrl:  string;
+  private readonly ariUrl:  string;
 
   constructor(
-    private readonly http: HttpService,
+    private readonly http:   HttpService,
     private readonly config: ConfigService,
-    private readonly es: ElasticsearchService,
+    private readonly es:     ElasticsearchService,
     @InjectRedis() private readonly redis: Redis,
   ) {
-    this.cacheTtl = config.get<number>('REDIS_TTL_SECONDS', 3600);
-    this.prhUrl = config.get<string>('PRH_API_URL', 'https://avoindata.prh.fi/opendata-ytj-api/v3');
-    this.ariUrl = config.get<string>('ARIREGISTER_API_URL', 'https://ariregister.rik.ee/api');
-    this.esIndex = config.get<string>('ELASTICSEARCH_INDEX_COMPANIES', 'companies');
+    this.prhUrl = config.get<string>('PRH_API_URL',         'https://avoindata.prh.fi/opendata-ytj-api/v3');
+    this.ariUrl = config.get<string>('ARIREGISTER_API_URL', 'https://ariregister.rik.ee');
   }
 
-  // ── Public search entrypoint ──────────────────────────────────────────────
+  // ── Public entrypoint ─────────────────────────────────────────────────────
 
-  /**
-   * Routes to the right data source based on country code.
-   * Without a country, fans out across all sources in parallel.
-   */
-  async search(query: string, country?: CountryCode): Promise<CompanyResult[]> {
+  async searchCompanies(
+    query:    string,
+    country?: CountryCode,
+    limit     = 10,
+  ): Promise<CompanyResult[]> {
     if (!query || query.trim().length < 2) return [];
 
     switch (country) {
-      case 'FI': return this.searchFinland(query);
-      case 'EE': return this.searchEstonia(query);
-      case 'LV': return this.searchElasticsearch(query, 'LV');
-      case 'LT': return this.searchElasticsearch(query, 'LT');
+      case 'FI': return this.searchFinland(query, limit);
+      case 'EE': return this.searchEstonia(query, limit);
+      case 'LV': return this.searchElasticsearch(INDEX_LV, 'LV', query, limit);
+      case 'LT': return this.searchElasticsearch(INDEX_LT, 'LT', query, limit);
       default: {
-        const [fi, ee, lvlt] = await Promise.allSettled([
-          this.searchFinland(query),
-          this.searchEstonia(query),
-          this.searchElasticsearch(query),
+        const [fi, ee, lv, lt] = await Promise.allSettled([
+          this.searchFinland(query, limit),
+          this.searchEstonia(query, limit),
+          this.searchElasticsearch(INDEX_LV, 'LV', query, limit),
+          this.searchElasticsearch(INDEX_LT, 'LT', query, limit),
         ]);
         return [
           ...(fi.status === 'fulfilled' ? fi.value : []),
           ...(ee.status === 'fulfilled' ? ee.value : []),
-          ...(lvlt.status === 'fulfilled' ? lvlt.value : []),
+          ...(lv.status === 'fulfilled' ? lv.value : []),
+          ...(lt.status === 'fulfilled' ? lt.value : []),
         ];
       }
     }
   }
 
-  // ── Finland — PRH Open Data API ───────────────────────────────────────────
+  // ── Finland — PRH YTJ v3 ──────────────────────────────────────────────────
 
-  private async searchFinland(query: string): Promise<CompanyResult[]> {
-    const cacheKey = `company:fi:${query.toLowerCase()}`;
+  private async searchFinland(query: string, limit: number): Promise<CompanyResult[]> {
+    const cacheKey = `companies:FI:${query.toLowerCase()}`;
     const cached = await this.redis.get(cacheKey);
     if (cached) return JSON.parse(cached) as CompanyResult[];
 
     try {
-      const response = await firstValueFrom(
-        this.http.get<PrhSearchResponse>(`${this.prhUrl}/companies`, {
-          params: { name: query, maxResults: 10 },
+      const { data } = await firstValueFrom(
+        this.http.get<PrhV3Response>(`${this.prhUrl}/companies`, {
+          params:  { name: query, maxResults: limit },
           timeout: 8_000,
         }),
       );
 
-      const results = (response.data.results ?? []).map<CompanyResult>((c) => {
-        const addr = c.addresses?.find((a) => a.type === 1); // type 1 = visiting address
+      const results = (data.companies ?? []).map<CompanyResult>((c) => {
+        const currentName = (c.names ?? [])
+          .filter((n) => n.type === '1' && !n.endDate)
+          .sort((a, b) => (b.registrationDate ?? '').localeCompare(a.registrationDate ?? ''))
+          .at(0) ?? c.names?.[0];
+
+        const activeForm = (c.companyForms ?? []).find((f) => !f.endDate) ?? c.companyForms?.[0];
+        const legalForm  = activeForm?.descriptions.find((d) => d.languageCode === '3')?.description;
+
+        const addr = (c.addresses ?? []).filter((a) => !a.endDate).sort((a, b) => a.type - b.type).at(0);
+        const city = addr?.postOffices?.find((p) => p.languageCode === '1')?.city ?? addr?.postOffices?.[0]?.city;
+        const addressStr = [addr?.street, addr?.postCode, city].filter(Boolean).join(', ') || undefined;
+
         return {
-          id: c.businessId,
-          name: c.name,
-          registrationNumber: c.businessId,
-          country: 'FI',
-          status: 'ACTIVE',
-          registeredAt: c.registrationDate,
-          address: addr
-            ? {
-                street: addr.street,
-                city: addr.city,
-                postalCode: addr.postCode,
-                country: 'FI',
-              }
-            : undefined,
+          id:        c.businessId.value,
+          country:   'FI',
+          name:      currentName?.name ?? '',
+          regNumber: c.businessId.value,
+          legalForm,
+          address:   addressStr,
+          status:    c.endDate ? 'INACTIVE' : 'ACTIVE',
+          source:    'PRH',
         };
       });
 
-      await this.redis.setex(cacheKey, this.cacheTtl, JSON.stringify(results));
+      await this.redis.setex(cacheKey, CACHE_TTL, JSON.stringify(results));
       return results;
     } catch (err) {
       this.logger.warn(`PRH search failed for "${query}": ${(err as Error).message}`);
@@ -105,32 +113,35 @@ export class CompanyService {
     }
   }
 
-  // ── Estonia — Äriregister API ─────────────────────────────────────────────
+  // ── Estonia — Äriregister autocomplete ───────────────────────────────────
 
-  private async searchEstonia(query: string): Promise<CompanyResult[]> {
-    const cacheKey = `company:ee:${query.toLowerCase()}`;
+  private async searchEstonia(query: string, limit: number): Promise<CompanyResult[]> {
+    const cacheKey = `companies:EE:${query.toLowerCase()}`;
     const cached = await this.redis.get(cacheKey);
     if (cached) return JSON.parse(cached) as CompanyResult[];
 
     try {
-      // Äriregister suggest endpoint
-      const response = await firstValueFrom(
-        this.http.get<AriregisterSuggestion[]>(`${this.ariUrl}/est/suggestCompanyName`, {
-          params: { name: query, limit: 10 },
+      const { data } = await firstValueFrom(
+        this.http.get<AriregisterAutocompleteResponse>(`${this.ariUrl}/est/api/autocomplete`, {
+          params:  { q: query, limit },
           timeout: 8_000,
         }),
       );
 
-      const results = (response.data ?? []).map<CompanyResult>((c) => ({
-        id: c.ariregistriKood,
-        name: c.nimi,
-        registrationNumber: c.ariregistriKood,
-        country: 'EE',
-        status: c.staatus === 'R' ? 'ACTIVE' : 'INACTIVE',
-        address: c.aadress ? { street: c.aadress, country: 'EE' } : undefined,
+      const items = data?.data ?? [];
+      const results = items.map<CompanyResult>((c) => ({
+        id:        `EE-${c.reg_code}`,
+        country:   'EE',
+        name:      c.name,
+        regNumber: String(c.reg_code),
+        vatNumber: `EE${c.reg_code}`,
+        legalForm: '',
+        address:   c.legal_address ?? undefined,
+        status:    c.status === 'R' ? 'active' : 'inactive',
+        source:    'ariregister.rik.ee',
       }));
 
-      await this.redis.setex(cacheKey, this.cacheTtl, JSON.stringify(results));
+      await this.redis.setex(cacheKey, CACHE_TTL, JSON.stringify(results));
       return results;
     } catch (err) {
       this.logger.warn(`Äriregister search failed for "${query}": ${(err as Error).message}`);
@@ -140,95 +151,43 @@ export class CompanyService {
 
   // ── Latvia / Lithuania — Elasticsearch ───────────────────────────────────
 
-  async searchElasticsearch(query: string, country?: CountryCode): Promise<CompanyResult[]> {
-    const cacheKey = `company:es:${country ?? 'all'}:${query.toLowerCase()}`;
+  async searchElasticsearch(
+    index:   string,
+    country: string,
+    query:   string,
+    limit:   number,
+  ): Promise<CompanyResult[]> {
+    const cacheKey = `companies:${country}:${query.toLowerCase()}`;
     const cached = await this.redis.get(cacheKey);
     if (cached) return JSON.parse(cached) as CompanyResult[];
 
-    const countryFilter = country ? [{ term: { country } }] : [];
-
     try {
+      const indexExists = await this.es.indexExists(index);
+      if (!indexExists) return [];
+
       const response = await this.es.search<CompanyDocument>({
-        index: this.esIndex,
-        size: 10,
+        index,
+        size: limit,
         query: {
-          bool: {
-            must: [
-              {
-                multi_match: {
-                  query,
-                  fields: ['name^3', 'registrationNumber^2', 'vatNumber'],
-                  type: 'best_fields',
-                  fuzziness: 'AUTO',
-                },
-              },
-            ],
-            filter: countryFilter,
+          match: {
+            name: {
+              query,
+              analyzer: 'name_search_analyzer',
+            },
           },
         },
-        sort: [{ _score: { order: 'desc' } }, { 'nameLower.keyword': { order: 'asc' } }],
+        sort: [{ _score: { order: 'desc' } }],
       });
 
-      const results = response.hits.hits.map<CompanyResult>((hit) => {
-        const doc = hit._source!;
-        return {
-          id: doc.registrationNumber,
-          name: doc.name,
-          registrationNumber: doc.registrationNumber,
-          vatNumber: doc.vatNumber,
-          country: doc.country,
-          status: doc.status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE',
-          address: {
-            street: doc.street,
-            city: doc.city,
-            postalCode: doc.postalCode,
-            country: doc.country,
-          },
-          registeredAt: doc.registeredAt,
-        };
-      });
+      const results = response.hits.hits
+        .filter((h) => h._source)
+        .map<CompanyResult>((h) => h._source as CompanyResult);
 
-      await this.redis.setex(cacheKey, Math.min(this.cacheTtl, 300), JSON.stringify(results));
+      await this.redis.setex(cacheKey, CACHE_TTL, JSON.stringify(results));
       return results;
     } catch (err) {
-      this.logger.warn(`ES search failed for "${query}": ${(err as Error).message}`);
+      this.logger.warn(`ES search [${index}] failed for "${query}": ${(err as Error).message}`);
       return [];
     }
-  }
-
-  // ── Elasticsearch index bootstrap ─────────────────────────────────────────
-
-  async ensureIndex(): Promise<void> {
-    const exists = await this.es.indexExists(this.esIndex);
-    if (exists) return;
-
-    await this.es.createIndex(this.esIndex, {
-      mappings: {
-        properties: {
-          name: { type: 'text', analyzer: 'standard', fields: { keyword: { type: 'keyword' } } },
-          nameLower: { type: 'keyword' },
-          registrationNumber: { type: 'keyword' },
-          vatNumber: { type: 'keyword' },
-          country: { type: 'keyword' },
-          status: { type: 'keyword' },
-          street: { type: 'text' },
-          city: { type: 'keyword' },
-          postalCode: { type: 'keyword' },
-          registeredAt: { type: 'date' },
-          syncedAt: { type: 'date' },
-        },
-      },
-      settings: {
-        number_of_shards: 1,
-        number_of_replicas: 0,
-        analysis: {
-          analyzer: {
-            standard: { type: 'standard' },
-          },
-        },
-      },
-    });
-
-    this.logger.log(`Elasticsearch index "${this.esIndex}" created`);
   }
 }
