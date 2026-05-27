@@ -1,0 +1,36 @@
+# ── version control ──────────────────────────────────────────────────────────
+.git
+.gitignore
+
+# ── local dev ────────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+docker-compose.yml
+docker-compose.override.yml
+
+# ── built output (rebuilt inside Docker) ─────────────────────────────────────
+**/dist
+**/.next
+**/build
+
+# ── node_modules (installed inside Docker) ───────────────────────────────────
+**/node_modules
+
+# ── turbo cache ──────────────────────────────────────────────────────────────
+**/.turbo
+
+# ── test / coverage ──────────────────────────────────────────────────────────
+**/coverage
+**/*.spec.ts
+**/*.test.ts
+**/__tests__
+
+# ── docs / misc ──────────────────────────────────────────────────────────────
+*.md
+.github
+infra/keycloak
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db

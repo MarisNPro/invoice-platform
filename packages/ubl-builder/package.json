@@ -2,18 +2,19 @@
   "name": "@invoice/ubl-builder",
   "version": "0.0.1",
   "private": true,
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
-  "exports": { ".": "./src/index.ts" },
-  "scripts": {
-    "build": "tsc",
-    "typecheck": "tsc --noEmit"
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "require": "./dist/index.js",
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
   },
+  "scripts": { "build": "tsc", "typecheck": "tsc --noEmit" },
   "dependencies": {
     "@invoice/shared-types": "workspace:*",
     "xmlbuilder2": "^3.1.1"
   },
-  "devDependencies": {
-    "typescript": "^5.4.5"
-  }
+  "devDependencies": { "typescript": "^5.4.5" }
 }

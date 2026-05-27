@@ -1,0 +1,171 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# Invoice Platform — Production Docker Compose
+# Deployed on Hetzner CX32 via Coolify
+#
+# External services (not in this compose):
+#   - PostgreSQL  → Supabase EU (Frankfurt)
+#   - Redis       → Upstash EU
+#   - Auth        → Keycloak (separate Coolify service)
+#   - Storage     → Hetzner Object Storage FSN1
+#   - Email       → Resend
+# ══════════════════════════════════════════════════════════════════════════════
+
+name: invoice-platform-prod
+
+services:
+  # ── NestJS API ──────────────────────────────────────────────────────────────
+  api:
+    image: ${API_IMAGE:-ghcr.io/your-org/invoice-api:latest}
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+
+      # Database (Supabase — use pooled URL for the app, direct for migrations)
+      DATABASE_URL: ${DATABASE_URL}
+      DIRECT_URL: ${DIRECT_URL}
+
+      # Cache
+      REDIS_URL: ${REDIS_URL}
+
+      # Auth
+      KEYCLOAK_URL: ${KEYCLOAK_URL}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
+
+      # Storage (Hetzner Object Storage, S3-compatible)
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_REGION: ${S3_REGION:-eu-central-1}
+      S3_FORCE_PATH_STYLE: "true"
+
+      # Email (Resend SMTP)
+      SMTP_HOST: ${SMTP_HOST:-smtp.resend.com}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USER: ${SMTP_USER:-resend}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM: ${SMTP_FROM}
+
+      # Misc
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      API_GLOBAL_PREFIX: api/v1
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_INDEX_COMPANIES: companies
+
+      # AI (optional — for invoice AI features)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - invoice-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ── BullMQ Worker ───────────────────────────────────────────────────────────
+  worker:
+    image: ${WORKER_IMAGE:-ghcr.io/your-org/invoice-worker:latest}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      REDIS_URL: ${REDIS_URL}
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_INDEX_COMPANIES: companies
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
+      LV_UR_CSV_URL: ${LV_UR_CSV_URL:-https://ur.gov.lv/en/open-data/companies.csv}
+      LT_RC_CSV_URL: ${LT_RC_CSV_URL:-https://www.registrucentras.lt/jar/p/doc/jar_iregistruoti_statiniai.csv}
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - invoice-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ── Doc Engine ──────────────────────────────────────────────────────────────
+  doc-engine:
+    image: ${DOC_ENGINE_IMAGE:-ghcr.io/your-org/invoice-doc-engine:latest}
+    restart: unless-stopped
+    ports:
+      - "4010:4010"
+    environment:
+      NODE_ENV: production
+      PORT: "4010"
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_REGION: ${S3_REGION:-eu-central-1}
+      S3_FORCE_PATH_STYLE: "true"
+    networks:
+      - invoice-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # ── Elasticsearch 8 (single-node, no TLS for internal net) ──────────────────
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.http.ssl.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+      cluster.name: invoice-prod
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - invoice-net
+    # Not exposed externally — only reachable on invoice-net
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          curl -fs http://localhost:9200/_cluster/health
+          | grep -qv '"status":"red"'
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+
+volumes:
+  elasticsearch_data:
+    driver: local
+
+networks:
+  invoice-net:
+    driver: bridge
+    name: invoice-net

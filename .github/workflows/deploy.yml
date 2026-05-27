@@ -1,0 +1,182 @@
+name: CI / CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Shared across jobs
+  NODE_VERSION: "20"
+  PNPM_VERSION: "9.4.0"
+
+# ── Job 1: Lint + Typecheck ─────────────────────────────────────────────────────
+jobs:
+  check:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prisma generate (needed for API typecheck)
+        run: pnpm --filter @invoice/api exec prisma generate --schema=./prisma/schema.prisma
+
+      - name: Build workspace packages (needed before typechecking apps)
+        run: |
+          pnpm --filter @invoice/shared-types run build
+          pnpm --filter @invoice/vat-engine   run build
+          pnpm --filter @invoice/ubl-builder  run build
+          pnpm --filter @invoice/en16931      run build
+          pnpm --filter @invoice/i18n         run build
+          pnpm --filter @invoice/ui           run build
+
+      - name: Typecheck all packages
+        run: pnpm turbo typecheck
+
+# ── Job 2: Test (Postgres + Redis services) ─────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: check
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: invoice
+          POSTGRES_PASSWORD: invoice
+          POSTGRES_DB: invoice_platform_test
+        options: >-
+          --health-cmd "pg_isready -U invoice -d invoice_platform_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    env:
+      DATABASE_URL: postgresql://invoice:invoice@localhost:5432/invoice_platform_test
+      DIRECT_URL:   postgresql://invoice:invoice@localhost:5432/invoice_platform_test
+      REDIS_URL:    redis://localhost:6379
+      # Keycloak — guard is disabled in test env via SKIP_AUTH=true
+      KEYCLOAK_URL:           http://localhost:8080
+      KEYCLOAK_REALM:         invoice-platform
+      KEYCLOAK_CLIENT_ID:     invoice-api
+      KEYCLOAK_CLIENT_SECRET: test-secret
+      NODE_ENV:               test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prisma generate
+        run: pnpm --filter @invoice/api exec prisma generate --schema=./prisma/schema.prisma
+
+      - name: Apply database migrations
+        run: |
+          pnpm --filter @invoice/api exec \
+            prisma migrate deploy --schema=./prisma/schema.prisma
+
+      - name: Build packages (required for tests)
+        run: |
+          pnpm --filter @invoice/shared-types run build
+          pnpm --filter @invoice/vat-engine   run build
+          pnpm --filter @invoice/ubl-builder  run build
+          pnpm --filter @invoice/en16931      run build
+          pnpm --filter @invoice/i18n         run build
+
+      - name: Run tests
+        run: pnpm turbo test
+
+# ── Job 3: Deploy web → Vercel ──────────────────────────────────────────────────
+  deploy-web:
+    name: Deploy Web → Vercel
+    runs-on: ubuntu-latest
+    needs: [check, test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: amondnet/vercel-action@v25
+        with:
+          vercel-token:      ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id:     ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          # Root of the Next.js app relative to repo root
+          working-directory: ./apps/web
+          vercel-args: '--prod'
+          alias-domains: |
+            app.yourdomain.com
+
+# ── Job 4: Deploy API + Worker → Coolify ────────────────────────────────────────
+  deploy-api:
+    name: Deploy API → Coolify
+    runs-on: ubuntu-latest
+    needs: [check, test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Trigger Coolify deployment (API)
+        run: |
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "${{ secrets.COOLIFY_API_WEBHOOK }}" \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_WEBHOOK_TOKEN }}" \
+            -H "Content-Type: application/json")
+
+          if [ "$HTTP_STATUS" -ne 200 ] && [ "$HTTP_STATUS" -ne 201 ]; then
+            echo "Coolify API webhook returned HTTP $HTTP_STATUS"
+            exit 1
+          fi
+          echo "✓ Coolify API deployment triggered (HTTP $HTTP_STATUS)"
+
+      - name: Trigger Coolify deployment (Worker)
+        run: |
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "${{ secrets.COOLIFY_WORKER_WEBHOOK }}" \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_WEBHOOK_TOKEN }}" \
+            -H "Content-Type: application/json")
+
+          if [ "$HTTP_STATUS" -ne 200 ] && [ "$HTTP_STATUS" -ne 201 ]; then
+            echo "Coolify Worker webhook returned HTTP $HTTP_STATUS"
+            exit 1
+          fi
+          echo "✓ Coolify Worker deployment triggered (HTTP $HTTP_STATUS)"
