@@ -10,11 +10,14 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import { InvoiceService } from './invoice.service';
+import { InvoicePdfService } from './invoice-pdf.service';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles, Role } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
@@ -25,7 +28,10 @@ import type { CreateInvoiceDto } from './invoice.types';
 @Controller('invoices')
 @UseGuards(RolesGuard)
 export class InvoiceController {
-  constructor(private readonly invoices: InvoiceService) {}
+  constructor(
+    private readonly invoices: InvoiceService,
+    private readonly pdf:      InvoicePdfService,
+  ) {}
 
   // ── POST /api/v1/invoices ─────────────────────────────────────────────────
   /**
@@ -59,6 +65,30 @@ export class InvoiceController {
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
   ) {
     return this.invoices.findAll(user.tenant_id ?? '', status, page, limit);
+  }
+
+  // ── GET /api/v1/invoices/:idOrNumber/pdf ─────────────────────────────────
+  /**
+   * Download invoice as PDF.
+   * :idOrNumber can be either a UUID or an invoice number (e.g. INV-2024-00002).
+   * Returns application/pdf with Content-Disposition: attachment.
+   */
+  @Get(':idOrNumber/pdf')
+  async getPdf(
+    @Param('idOrNumber') idOrNumber: string,
+    @CurrentUser() user: JwtPayload,
+    @Res() res: FastifyReply,
+  ) {
+    const { buffer, filename } = await this.pdf.generate(
+      user.tenant_id ?? '',
+      idOrNumber,
+    );
+
+    void res
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .header('Content-Length', String(buffer.length))
+      .send(buffer);
   }
 
   // ── GET /api/v1/invoices/:id ──────────────────────────────────────────────

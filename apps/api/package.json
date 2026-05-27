@@ -40,6 +40,7 @@
     "fastify": "^4.28.1",
     "ioredis": "^5.4.1",
     "jose": "^5.4.1",
+    "pdf-lib": "^1.17.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },
