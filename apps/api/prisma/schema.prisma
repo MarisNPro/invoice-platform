@@ -87,12 +87,24 @@ model Tenant {
   country   String   @db.Char(2)
   locale    String   @default("en") @db.VarChar(5)
 
-  // ── Billing / AI spend ────────────────────────────────────────────────────
-  plan                Plan @default(FREE)
+  // ── Billing / plan ────────────────────────────────────────────────────────
+  plan                 Plan      @default(FREE)
+  planStartedAt        DateTime?
+  planExpiresAt        DateTime?
+
+  // ── Monthly usage counters ────────────────────────────────────────────────
   /// Running AI spend this calendar month, in euro cents
-  monthlyAiSpendCents Int  @default(0)
+  monthlyAiSpendCents  Int @default(0)
   /// Soft cap in euro cents; -1 = unlimited (PROFESSIONAL)
-  monthlyAiSpendLimit Int  @default(200)
+  monthlyAiSpendLimit  Int @default(200)
+  /// Invoices created this calendar month
+  monthlyInvoiceCount  Int @default(0)
+  /// Invoice creation cap; -1 = unlimited
+  monthlyInvoiceLimit  Int @default(50)
+  /// Claude API calls this calendar month
+  monthlyAiCallCount   Int @default(0)
+  /// Claude API call cap; -1 = unlimited
+  monthlyAiCallLimit   Int @default(-1)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -114,20 +126,25 @@ model Tenant {
 // ── User ─────────────────────────────────────────────────────────────────────
 
 model User {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @db.Uuid
-  keycloakId String   @unique
-  email      String
-  name       String
-  role       Role     @default(VIEWER)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @db.Uuid
+  keycloakId  String    @unique
+  email       String
+  name        String
+  firstName   String?
+  lastName    String?
+  role        Role      @default(VIEWER)
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   tenant   Tenant    @relation(fields: [tenantId], references: [id])
   invoices Invoice[]
 
   @@unique([tenantId, email])
   @@index([keycloakId])
+  @@index([isActive])
   @@map("users")
 }
 

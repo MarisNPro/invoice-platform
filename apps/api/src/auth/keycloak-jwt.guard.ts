@@ -66,7 +66,7 @@ export class KeycloakJwtGuard implements CanActivate {
         preferred_username: 'dev',
         tenant_id:          tenantId,
         realm_access: {
-          roles: ['invoice-admin', 'invoice-accountant', 'invoice-viewer'],
+          roles: ['invoice-admin', 'invoice-accountant', 'invoice-viewer', 'superadmin'],
         },
         resource_access: {},
       };

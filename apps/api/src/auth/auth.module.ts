@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { KeycloakJwtGuard } from './keycloak-jwt.guard';
 import { RolesGuard } from './roles.guard';
+import { ImpersonateController } from './impersonate.controller';
 
 /**
  * AuthModule registers KeycloakJwtGuard and RolesGuard globally via APP_GUARD,
@@ -10,6 +11,7 @@ import { RolesGuard } from './roles.guard';
  * To make a specific route public, add @Public() decorator (see below).
  */
 @Module({
+  controllers: [ImpersonateController],
   providers: [
     KeycloakJwtGuard,
     RolesGuard,

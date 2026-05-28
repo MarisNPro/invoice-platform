@@ -2,9 +2,10 @@ import { SetMetadata } from '@nestjs/common';
 
 /** Platform roles — mirror Keycloak realm roles exactly. */
 export enum Role {
-  ADMIN = 'invoice-admin',
+  ADMIN      = 'invoice-admin',
   ACCOUNTANT = 'invoice-accountant',
-  VIEWER = 'invoice-viewer',
+  VIEWER     = 'invoice-viewer',
+  SUPERADMIN = 'superadmin',
 }
 
 export const ROLES_KEY = 'roles';

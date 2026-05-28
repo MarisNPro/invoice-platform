@@ -1,0 +1,123 @@
+{
+  "realm": "invoice-platform",
+  "displayName": "Invoice Platform",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 300,
+  "roles": {
+    "realm": [
+      {
+        "name": "superadmin",
+        "description": "Platform superadministrator — full access to admin panel",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "invoice-platform"
+      },
+      {
+        "name": "invoice-admin",
+        "description": "Organisation administrator — can manage org settings, users and all invoices",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "invoice-platform"
+      },
+      {
+        "name": "invoice-accountant",
+        "description": "Accountant — can create and manage invoices",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "invoice-platform"
+      },
+      {
+        "name": "invoice-viewer",
+        "description": "Read-only viewer — can view invoices and contacts",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "invoice-platform"
+      },
+      {
+        "name": "offline_access",
+        "description": "${role_offline-access}",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "invoice-platform"
+      },
+      {
+        "name": "uma_authorization",
+        "description": "${role_uma_authorization}",
+        "composite": false,
+        "clientRole": false,
+        "containerId": "invoice-platform"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "invoice-platform-api",
+      "name": "Invoice Platform API",
+      "description": "Backend API client — JWT audience for all API calls",
+      "enabled": true,
+      "publicClient": false,
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:4000/*",
+        "http://localhost:3000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:4000",
+        "http://localhost:3000"
+      ],
+      "protocolMappers": [
+        {
+          "name": "tenant-id-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "tenant_id",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "superadmin",
+      "email": "superadmin@invoiceplatform.local",
+      "firstName": "Super",
+      "lastName": "Admin",
+      "enabled": true,
+      "emailVerified": true,
+      "attributes": {
+        "tenant_id": ["00000000-0000-0000-0000-000000000001"]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "SuperAdmin1234!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "superadmin",
+        "invoice-admin",
+        "offline_access",
+        "uma_authorization"
+      ]
+    }
+  ]
+}
