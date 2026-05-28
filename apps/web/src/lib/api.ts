@@ -1,0 +1,69 @@
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
+const DEV_TENANT = process.env.NEXT_PUBLIC_DEV_TENANT_ID ?? '00000000-0000-0000-0000-000000000001';
+
+function devHeaders(): Record<string, string> {
+  if (process.env.NODE_ENV === 'production') return {};
+  return { 'x-dev-tenant-id': DEV_TENANT };
+}
+
+export async function apiGet<T>(path: string): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { ...devHeaders() },
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`GET ${path} → ${res.status}`);
+  return res.json() as Promise<T>;
+}
+
+export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...devHeaders() },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    let msg: string;
+    try { msg = JSON.parse(text)?.message ?? text; } catch { msg = text; }
+    throw new Error(msg);
+  }
+  return res.json() as Promise<T>;
+}
+
+// ── Typed response shapes ─────────────────────────────────────────────────────
+
+export interface ContactResult {
+  id: string;
+  name: string;
+  vatNumber?: string;
+  businessId?: string;
+  country: string;
+  email?: string;
+  addresses: Array<{
+    street: string;
+    city: string;
+    postalCode: string;
+    country: string;
+    isDefault: boolean;
+  }>;
+}
+
+export interface CompanySearchResult {
+  id: string;
+  country: string;
+  name: string;
+  regNumber: string;
+  vatNumber?: string;
+  legalForm?: string;
+  address?: string;
+  status: string;
+  source: string;
+}
+
+export interface CreatedInvoice {
+  id: string;
+  number: string;
+  status: string;
+  total: number;
+  currencyCode: string;
+}
