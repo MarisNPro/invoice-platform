@@ -242,11 +242,11 @@ export function CompanyAutocomplete({
           <ul
             ref={listRef}
             role="listbox"
-            className="absolute left-0 right-0 top-0 max-h-72 overflow-y-auto rounded-md border border-border bg-white shadow-lg"
+            className="absolute left-0 right-0 top-0 max-h-72 overflow-y-auto rounded-md border border-border bg-popover shadow-lg"
           >
             {/* Group: Existing customers */}
             {contacts.length > 0 && (
-              <li className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide bg-muted/40">
+              <li className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide bg-muted/60">
                 Your customers
               </li>
             )}
@@ -265,7 +265,7 @@ export function CompanyAutocomplete({
 
             {/* Group: Registry results */}
             {registry.filter((r) => !contacts.some((c) => c.businessId === r.regNumber || c.vatNumber === r.vatNumber)).length > 0 && (
-              <li className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide bg-muted/40 border-t border-border">
+              <li className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide bg-muted/60 border-t border-border">
                 Company registry
               </li>
             )}
@@ -290,7 +290,7 @@ export function CompanyAutocomplete({
       {/* No results */}
       {open && enabled && !loading && options.length === 0 && (
         <div className="relative z-50">
-          <div className="absolute left-0 right-0 top-0 rounded-md border border-border bg-white px-4 py-3 text-sm text-muted-foreground shadow-lg">
+          <div className="absolute left-0 right-0 top-0 rounded-md border border-border bg-popover px-4 py-3 text-sm text-muted-foreground shadow-lg">
             No companies found for "{debouncedQ}"
           </div>
         </div>

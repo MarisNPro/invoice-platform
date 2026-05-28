@@ -4,6 +4,7 @@ import {
   DefaultValuePipe,
   Get,
   Ip,
+  NotFoundException,
   Param,
   ParseIntPipe,
   ParseUUIDPipe,
@@ -19,12 +20,14 @@ import type { FastifyReply } from 'fastify';
 import { InvoiceService } from './invoice.service';
 import { InvoicePdfService } from './invoice-pdf.service';
 import { InvoiceUblService } from './invoice-ubl.service';
+import { AiService } from '../ai/ai.service';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles, Role } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import type { JwtPayload } from '../auth/jwt-payload.interface';
 import { CreateInvoiceBodyDto } from './dto/create-invoice.dto';
 import type { CreateInvoiceDto } from './invoice.types';
+import type { ReviewableInvoice } from '../ai/ai.service';
 
 @Controller('invoices')
 @UseGuards(RolesGuard)
@@ -33,6 +36,7 @@ export class InvoiceController {
     private readonly invoices: InvoiceService,
     private readonly pdf:      InvoicePdfService,
     private readonly ubl:      InvoiceUblService,
+    private readonly ai:       AiService,
   ) {}
 
   // ── POST /api/v1/invoices ─────────────────────────────────────────────────
@@ -116,6 +120,71 @@ export class InvoiceController {
       .header('Content-Disposition', `attachment; filename="${filename}"`)
       .header('Content-Length', String(bytes.length))
       .send(bytes);
+  }
+
+  // ── POST /api/v1/invoices/:idOrNumber/review ─────────────────────────────
+  /**
+   * AI-powered EN 16931 compliance review of an existing invoice.
+   * Checks arithmetic, mandatory fields, VAT categories, date sanity.
+   *
+   * Returns: { issues, suggestions, approved, confidence }
+   * Requires ACCOUNTANT or ADMIN role.
+   */
+  @Post(':idOrNumber/review')
+  @Roles(Role.ADMIN, Role.ACCOUNTANT)
+  async reviewInvoice(
+    @Param('idOrNumber') idOrNumber: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const tenantId = user.tenant_id ?? '';
+
+    // Load the full invoice (UUID or invoice number both accepted)
+    const inv = await this.invoices.findByIdOrNumber(tenantId, idOrNumber);
+
+    // Map to the ReviewableInvoice shape AiService expects
+    const reviewable: ReviewableInvoice = {
+      number:   inv.number,
+      currency: inv.currencyCode,
+      issueDate: inv.issuedAt,
+      dueDate:   inv.dueAt,
+      subtotal:  Number(inv.subtotal),
+      taxAmount: Number(inv.taxAmount),
+      total:     Number(inv.total),
+      seller: {
+        name:       inv.seller.name,
+        vatNumber:  inv.seller.vatNumber,
+        businessId: inv.seller.businessId,
+        country:    inv.seller.country,
+      },
+      buyer: {
+        name:       inv.buyer.name,
+        vatNumber:  inv.buyer.vatNumber,
+        businessId: inv.buyer.businessId,
+        country:    inv.buyer.country,
+      },
+      lines: inv.lines.map((ln) => ({
+        lineNumber:     ln.lineNumber,
+        description:    ln.description,
+        quantity:       Number(ln.quantity),
+        unit:           ln.unit,
+        unitPrice:      Number(ln.unitPrice),
+        lineTotal:      Number(ln.lineTotal),
+        taxAmount:      Number(ln.taxAmount),
+        vatRatePercent: ln.taxRate
+          ? Math.round(Number(ln.taxRate.rate) * 10000) / 100
+          : undefined,
+      })),
+      vatBreakdowns: inv.vatBreakdowns.map((vb) => ({
+        vatCategoryCode: vb.vatCategoryCode,
+        vatRatePercent:  Number(vb.vatRatePercent),
+        taxableAmount:   Number(vb.taxableAmount),
+        taxAmount:       Number(vb.taxAmount),
+      })),
+      note:             inv.note,
+      paymentTermsNote: inv.paymentTermsNote,
+    };
+
+    return this.ai.reviewInvoice(reviewable);
   }
 
   // ── GET /api/v1/invoices/:id ──────────────────────────────────────────────

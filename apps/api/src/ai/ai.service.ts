@@ -216,6 +216,169 @@ export interface ParseInvoiceResult {
   usage: ParseUsage;
 }
 
+// ── Review system prompt (separate cached block for review calls) ─────────────
+
+const REVIEW_SYSTEM_PROMPT = `\
+You are a senior EU invoicing compliance auditor. Your job is to review invoices
+against EN 16931 (European electronic invoicing standard) and Peppol BIS Billing 3.0.
+
+━━━ CHECKS TO PERFORM ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. ARITHMETIC INTEGRITY
+   - Each line: lineTotal = quantity × unitPrice (within 0.01 rounding tolerance)
+   - Each line: lineTaxAmount = lineTotal × (vatRate / 100) (0.01 tolerance)
+   - BG-22 subtotal = sum of all lineTotals
+   - BG-22 taxAmount = sum of all lineTaxAmounts (and VAT breakdown amounts)
+   - BG-22 total = subtotal + taxAmount
+   - VAT breakdown: taxableAmount = sum of lineTotals for that rate
+   - VAT breakdown: taxAmount = taxableAmount × (rate / 100)
+
+2. MANDATORY FIELDS (EN 16931 §7.1)
+   - BT-1  Invoice number must be present and non-empty
+   - BT-2  Issue date must be present
+   - BT-5  Currency code must be a valid ISO 4217 code (3 uppercase letters)
+   - BT-9  Payment due date must be present
+   - BT-27 Seller name must be present
+   - BT-44 Buyer name must be present
+   - BT-106 Sum of line net amounts must be present
+   - BT-110 Total VAT amount must be present
+   - BT-112 Invoice total with VAT must be present
+   - At least one invoice line must be present
+
+3. VAT CATEGORY CODES (EN 16931 §6.4.1 — BT-118)
+   - S (Standard rate): rate > 0 — must match a EU standard rate for the country
+   - Z (Zero-rated):    rate = 0 — valid for exports, specific exemptions
+   - E (Exempt):        rate = 0 — must have exemption reason (BT-120)
+   - AE (Reverse charge): rate = 0 — used for intra-EU B2B supplies
+   - Warn if S rate appears unusual for the buyer's country (e.g. 21% for FI where
+     standard is 25.5%, 19% for EE where standard is 22%)
+
+4. DATE REASONABLENESS
+   - Due date must be on or after issue date
+   - Warn if due date is > 180 days after issue date (unusually long terms)
+   - Warn if issue date is more than 30 days in the past (possible backdating)
+   - Warn if issue date is in the future (pre-invoicing)
+
+5. DUPLICATE / QUALITY RISKS
+   - Warn if any line description is empty, very short (< 3 chars), or generic
+     (e.g. "test", "item", "product")
+   - Warn if any unit price is 0 (is this intentional?)
+   - Warn if quantity is negative (credit lines should be on a credit note, BT-3 = 381)
+   - Info: note if note/payment-terms are empty (nice to have)
+
+━━━ SEVERITY LEVELS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+error   — blocks processing; invoice MUST be corrected before sending
+warning — should be reviewed; may cause rejection at Peppol network level
+info    — best-practice recommendation; invoice is valid but could be improved
+
+━━━ APPROVED DEFINITION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+approved = true  if there are zero "error" severity issues
+approved = false if there is at least one "error" severity issue
+(warnings and infos do not prevent approval)
+
+Always call the review_invoice tool. Never reply in plain text.`;
+
+// ── Review tool ───────────────────────────────────────────────────────────────
+
+const REVIEW_INVOICE_TOOL: Anthropic.Messages.Tool = {
+  name: 'review_invoice',
+  description:
+    'Return a structured EN 16931 compliance review for the given invoice.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      issues: {
+        type: 'array',
+        description: 'List of compliance issues found. Empty array if none.',
+        items: {
+          type: 'object',
+          properties: {
+            field: {
+              type: 'string',
+              description:
+                'The EN 16931 field or section involved, e.g. "BT-9 dueDate", "BG-22 subtotal", "line 2 vatRate"',
+            },
+            severity: {
+              type: 'string',
+              enum: ['error', 'warning', 'info'],
+              description: 'error = must fix | warning = should fix | info = nice to fix',
+            },
+            message: {
+              type: 'string',
+              description: 'Human-readable explanation of the issue',
+            },
+          },
+          required: ['field', 'severity', 'message'],
+        },
+      },
+      suggestions: {
+        type: 'array',
+        description: 'Actionable improvement suggestions (strings). Max 5.',
+        items: { type: 'string' },
+      },
+      approved: {
+        type: 'boolean',
+        description: 'true if zero error-severity issues; false otherwise',
+      },
+      confidence: {
+        type: 'number',
+        description:
+          '0.0–1.0 confidence in the review. Lower when data is ambiguous.',
+      },
+    },
+    required: ['issues', 'suggestions', 'approved', 'confidence'],
+  },
+};
+
+// ── Review input / output types ───────────────────────────────────────────────
+
+export interface ReviewableLine {
+  lineNumber: number;
+  description: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  lineTotal: number;
+  taxAmount: number;
+  vatRatePercent?: number;  // derived from taxRate.rate if available
+}
+
+export interface ReviewableVatBreakdown {
+  vatCategoryCode: string;
+  vatRatePercent: number;
+  taxableAmount: number;
+  taxAmount: number;
+}
+
+export interface ReviewableInvoice {
+  number: string;
+  currency: string;
+  issueDate: Date;
+  dueDate: Date;
+  subtotal: number;
+  taxAmount: number;
+  total: number;
+  seller: { name: string; vatNumber?: string | null; businessId?: string | null; country?: string | null };
+  buyer:  { name: string; vatNumber?: string | null; businessId?: string | null; country?: string | null };
+  lines: ReviewableLine[];
+  vatBreakdowns: ReviewableVatBreakdown[];
+  note?: string | null;
+  paymentTermsNote?: string | null;
+}
+
+export interface ReviewIssue {
+  field: string;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+}
+
+export interface InvoiceReviewResult {
+  issues: ReviewIssue[];
+  suggestions: string[];
+  approved: boolean;
+  confidence: number;
+  usage: ParseUsage;
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 @Injectable()
@@ -310,6 +473,129 @@ export class AiService {
       parsed,
       missingRequiredFields,
       notes,
+      usage: {
+        inputTokens:              u.input_tokens,
+        outputTokens:             u.output_tokens,
+        cacheReadInputTokens:     cacheRead,
+        cacheCreationInputTokens: cacheCreate,
+      },
+    };
+  }
+
+  // ── reviewInvoice ─────────────────────────────────────────────────────────
+
+  /**
+   * Review an existing invoice for EN 16931 / Peppol BIS 3.0 compliance.
+   * Returns a structured list of issues, suggestions, and an approval flag.
+   *
+   * Prompt caching is applied to the long system prompt so repeated review
+   * calls (common in CI or pre-send validation flows) are cheap.
+   */
+  async reviewInvoice(invoice: ReviewableInvoice): Promise<InvoiceReviewResult> {
+    this.logger.debug(`Reviewing invoice ${invoice.number}`);
+
+    // ── Build readable invoice summary for the user message ─────────────────
+    const toIso = (d: Date) => new Date(d).toISOString().slice(0, 10);
+    const fmt2  = (n: number) => Number(n).toFixed(2);
+
+    const linesSummary = invoice.lines
+      .map(
+        (l) =>
+          `  Line ${l.lineNumber}: "${l.description}" | ` +
+          `qty=${l.quantity} ${l.unit} × ${fmt2(l.unitPrice)} = ${fmt2(l.lineTotal)} | ` +
+          `tax=${fmt2(l.taxAmount)}` +
+          (l.vatRatePercent !== undefined ? ` (${l.vatRatePercent}%)` : ''),
+      )
+      .join('\n');
+
+    const vatSummary = invoice.vatBreakdowns
+      .map(
+        (vb) =>
+          `  VAT ${vb.vatCategoryCode} ${vb.vatRatePercent}%: ` +
+          `taxable=${fmt2(vb.taxableAmount)}, tax=${fmt2(vb.taxAmount)}`,
+      )
+      .join('\n');
+
+    const invoiceSummary = `\
+INVOICE: ${invoice.number}
+Currency: ${invoice.currency}
+Issue date: ${toIso(invoice.issueDate)}
+Due date:   ${toIso(invoice.dueDate)}
+
+SELLER: ${invoice.seller.name}
+  VAT: ${invoice.seller.vatNumber ?? '(not set)'}
+  Reg: ${invoice.seller.businessId ?? '(not set)'}
+  Country: ${invoice.seller.country ?? '(unknown)'}
+
+BUYER: ${invoice.buyer.name}
+  VAT: ${invoice.buyer.vatNumber ?? '(not set)'}
+  Reg: ${invoice.buyer.businessId ?? '(not set)'}
+  Country: ${invoice.buyer.country ?? '(unknown)'}
+
+LINES:
+${linesSummary}
+
+VAT BREAKDOWNS:
+${vatSummary}
+
+DOCUMENT TOTALS (BG-22):
+  BT-106 Subtotal (sum of lines):   ${fmt2(invoice.subtotal)}
+  BT-110 Total VAT:                 ${fmt2(invoice.taxAmount)}
+  BT-112 Grand total (incl. VAT):   ${fmt2(invoice.total)}
+
+NOTES:
+  Payment terms (BT-20): ${invoice.paymentTermsNote ?? '(not set)'}
+  Invoice note  (BT-22): ${invoice.note ?? '(not set)'}`;
+
+    const response = await this.client.beta.promptCaching.messages.create({
+      model: MODEL,
+      max_tokens: 2048,
+      system: [
+        {
+          type: 'text',
+          text: REVIEW_SYSTEM_PROMPT,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
+      tools: [REVIEW_INVOICE_TOOL],
+      tool_choice: { type: 'tool', name: 'review_invoice' },
+      messages: [
+        {
+          role: 'user',
+          content: `Please review this invoice for EN 16931 compliance:\n\n${invoiceSummary}`,
+        },
+      ],
+    });
+
+    const toolBlock = response.content.find(
+      (b): b is Anthropic.Messages.ToolUseBlock => b.type === 'tool_use',
+    );
+
+    if (!toolBlock) {
+      throw new Error(
+        'Claude did not return a review_invoice tool-use block. Response: ' +
+          JSON.stringify(response.content),
+      );
+    }
+
+    const result = toolBlock.input as {
+      issues: ReviewIssue[];
+      suggestions: string[];
+      approved: boolean;
+      confidence: number;
+    };
+
+    const u = response.usage;
+    const cacheRead   = u.cache_read_input_tokens   ?? 0;
+    const cacheCreate = u.cache_creation_input_tokens ?? 0;
+
+    this.logger.log(
+      `Review ${invoice.number}: approved=${result.approved}, ` +
+      `issues=${result.issues.length}, cache=${cacheRead > 0 ? 'HIT' : 'MISS'}`,
+    );
+
+    return {
+      ...result,
       usage: {
         inputTokens:              u.input_tokens,
         outputTokens:             u.output_tokens,

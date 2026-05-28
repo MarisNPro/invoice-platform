@@ -311,6 +311,31 @@ export class InvoiceService {
     });
   }
 
+  // ── Find by ID or invoice number (shared by PDF, UBL, review) ───────────────
+
+  async findByIdOrNumber(tenantId: string, idOrNumber: string) {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        idOrNumber,
+      );
+
+    const invoice = await this.prisma.invoice.findFirst({
+      where: {
+        tenantId,
+        ...(isUuid ? { id: idOrNumber } : { number: idOrNumber }),
+      },
+      include: {
+        buyer:         { include: { addresses: { orderBy: { isDefault: 'desc' } } } },
+        seller:        { include: { addresses: { orderBy: { isDefault: 'desc' } } } },
+        lines:         { include: { taxRate: true }, orderBy: { lineNumber: 'asc' } },
+        vatBreakdowns: { orderBy: { vatRatePercent: 'asc' } },
+      },
+    });
+
+    if (!invoice) throw new NotFoundException(`Invoice ${idOrNumber} not found`);
+    return invoice;
+  }
+
   // ── List & single fetch ──────────────────────────────────────────────────────
 
   async findAll(

@@ -67,3 +67,33 @@ export interface CreatedInvoice {
   total: number;
   currencyCode: string;
 }
+
+// ── AI parse response ─────────────────────────────────────────────────────────
+
+export interface ParsedInvoiceLine {
+  itemName: string;
+  quantity: number;
+  unitPrice: number;
+  vatRatePercent: number;
+  unitCode: string;
+}
+
+export interface ParsedInvoiceResponse {
+  parsed: {
+    customerName?: string;
+    currency: string;
+    issueDate: string;
+    dueDate: string;
+    lines: ParsedInvoiceLine[];
+    note?: string;
+    confidence: {
+      overall: number;
+      customer: number;
+      amounts: number;
+      dates: number;
+      vatRate: number;
+    };
+  };
+  missingRequiredFields: string[];
+  notes: string[];
+}
