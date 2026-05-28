@@ -67,6 +67,7 @@ enum TransmissionChannel {
   EMAIL
   WHATSAPP
   PEPPOL
+  DUNNING
 }
 
 enum TransmissionStatus {

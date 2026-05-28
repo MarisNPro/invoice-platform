@@ -10,10 +10,12 @@ import {
   handlePermanentEmailFailure,
 } from './jobs/send-invoice-email.job';
 import { resetMonthlyCountersProcessor } from './jobs/reset-monthly-counters.job';
+import { dunningSchedulerProcessor }     from './jobs/dunning-scheduler.job';
 import {
   QUEUE_COMPANY_SYNC,
   QUEUE_INVOICE_EMAIL,
   QUEUE_MONTHLY_RESET,
+  QUEUE_DUNNING_SCHEDULER,
   JobName,
 } from './jobs/job.constants';
 import type { SendInvoiceEmailJobData } from './jobs/job.constants';
@@ -99,12 +101,29 @@ async function main() {
   resetWorker.on('failed',    (job, err) => logger.error(`✗ ${job?.name} reset failed: ${err.message}`));
   resetWorker.on('error',     (err) => logger.error(`reset worker error: ${err.message}`));
 
+  // ── Dunning scheduler queue (daily 08:00 UTC) ─────────────────────────────
+  const dunningQueue = new Queue(QUEUE_DUNNING_SCHEDULER, { connection });
+  await registerDunningJob(dunningQueue);
+
+  const dunningWorker = new Worker(
+    QUEUE_DUNNING_SCHEDULER,
+    dunningSchedulerProcessor,
+    { connection, concurrency: 1, removeOnComplete: { count: 30 }, removeOnFail: { count: 30 } },
+  );
+
+  dunningWorker.on('completed', (job) =>
+    logger.log(`✓ ${job.name} (${job.id}) dunning run done`));
+  dunningWorker.on('failed', (job, err) =>
+    logger.error(`✗ ${job?.name} dunning failed: ${err.message}`));
+  dunningWorker.on('error', (err) =>
+    logger.error(`dunning worker error: ${err.message}`));
+
   // ── Graceful shutdown ─────────────────────────────────────────────────────
   const shutdown = async (signal: string) => {
     logger.log(`${signal} received, shutting down…`);
     await Promise.all([
-      syncWorker.close(), emailWorker.close(), resetWorker.close(),
-      syncQueue.close(),  emailQueue.close(),  resetQueue.close(),
+      syncWorker.close(), emailWorker.close(), resetWorker.close(),   dunningWorker.close(),
+      syncQueue.close(),  emailQueue.close(),  resetQueue.close(),    dunningQueue.close(),
     ]);
     process.exit(0);
   };
@@ -113,6 +132,18 @@ async function main() {
   process.on('SIGINT',  () => { void shutdown('SIGINT'); });
 
   logger.log(`ready (concurrency=${CONCURRENCY})`);
+}
+
+async function registerDunningJob(queue: Queue) {
+  const existing = await queue.getRepeatableJobs();
+  if (existing.some((j) => j.name === JobName.DUNNING_SCHEDULER)) return;
+
+  await queue.add(
+    JobName.DUNNING_SCHEDULER,
+    {},
+    { repeat: { pattern: '0 8 * * *' } },  // daily 08:00 UTC
+  );
+  logger.log(`registered repeatable job: ${JobName.DUNNING_SCHEDULER}`);
 }
 
 async function registerResetJob(queue: Queue) {

@@ -120,6 +120,83 @@ export class OrganisationService {
     return { message: 'Key revoked.' };
   }
 
+  // ── CONTEXT.md ────────────────────────────────────────────────────────────
+
+  async getCoworkContext(tenantId: string): Promise<string> {
+    const [tenant, sellerContact, topBuyers] = await Promise.all([
+      this.prisma.tenant.findUnique({
+        where:  { id: tenantId },
+        select: { name: true, vatNumber: true, country: true, locale: true },
+      }),
+      this.prisma.contact.findFirst({
+        where:  { tenantId, isCustomer: false },
+        select: { name: true, businessId: true, vatNumber: true, iban: true, email: true },
+      }),
+      this.prisma.invoice.groupBy({
+        by:      ['buyerId'],
+        where:   { tenantId },
+        _count:  { buyerId: true },
+        orderBy: { _count: { buyerId: 'desc' } },
+        take:    3,
+      }),
+    ]);
+
+    if (!tenant) throw new Error(`Tenant ${tenantId} not found`);
+
+    // Resolve buyer contact names
+    const buyerIds = topBuyers.map((b) => b.buyerId);
+    const buyerContacts = buyerIds.length
+      ? await this.prisma.contact.findMany({
+          where:  { id: { in: buyerIds } },
+          select: { id: true, name: true, vatNumber: true },
+        })
+      : [];
+
+    const byId = Object.fromEntries(buyerContacts.map((c) => [c.id, c]));
+    const topCustomerLines = topBuyers
+      .map((b) => {
+        const c = byId[b.buyerId];
+        if (!c) return null;
+        const vat = c.vatNumber ? `VAT: ${c.vatNumber}` : '';
+        return `- ${c.name}${vat ? ` · ${vat}` : ''} (${b._count.buyerId} invoice${b._count.buyerId !== 1 ? 's' : ''})`;
+      })
+      .filter(Boolean)
+      .join('\n');
+
+    const appBase = process.env['APP_BASE_URL'] ?? 'http://localhost:4000';
+    const company = sellerContact?.name ?? tenant.name;
+    const vatNo   = tenant.vatNumber ?? sellerContact?.vatNumber ?? '(not set)';
+    const regNo   = sellerContact?.businessId ?? '(not set)';
+    const iban    = sellerContact?.iban ?? '(not set)';
+    const lang    = tenant.locale ?? 'en';
+
+    return [
+      '# My Invoice Platform Context',
+      '',
+      '## My company',
+      `Company: ${company}`,
+      `VAT number: ${vatNo}`,
+      `Registration: ${regNo}`,
+      `Country: ${tenant.country}`,
+      'Currency: EUR',
+      `Language: ${lang}`,
+      'Default payment terms: 30 days',
+      '',
+      '## Top customers (last 3 by invoice count)',
+      topCustomerLines || '- (no invoices yet)',
+      '',
+      '## My preferences',
+      'Invoice prefix: INV',
+      'Send method: email',
+      `MCP server: ${appBase}/mcp`,
+      `IBAN: ${iban}`,
+      '',
+      '## Platform',
+      `App: ${appBase}`,
+      `API key: Generate one at ${appBase}/settings/api-keys`,
+    ].join('\n');
+  }
+
   /**
    * Validates a plain ro_ key against the DB hash.
    * Called by the MCP server's internal validate endpoint on every new SSE connection.

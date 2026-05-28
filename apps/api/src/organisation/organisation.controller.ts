@@ -6,9 +6,11 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Res,
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
+import type { FastifyReply } from 'fastify';
 import { Public } from '../auth/public.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-payload.interface';
@@ -51,6 +53,25 @@ export class OrganisationController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.organisations.revokeApiKey(user.tenant_id ?? '', id);
+  }
+
+  // ── GET /api/v1/organisations/cowork-context ─────────────────────────────
+  /**
+   * Returns a CONTEXT.md file pre-filled with the org's company data, top
+   * customers, and platform URLs — ready to paste into an AI system prompt.
+   */
+  @Get('cowork-context')
+  async getCoworkContext(
+    @CurrentUser() user: JwtPayload,
+    @Res() reply: FastifyReply,
+  ) {
+    const md    = await this.organisations.getCoworkContext(user.tenant_id ?? '');
+    const bytes = Buffer.from(md, 'utf8');
+    void reply
+      .header('Content-Type', 'text/markdown; charset=utf-8')
+      .header('Content-Disposition', 'attachment; filename="CONTEXT.md"')
+      .header('Content-Length', String(bytes.length))
+      .send(bytes);
   }
 
   // ── POST /api/v1/organisations/api-keys/validate ─────────────────────────

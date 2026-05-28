@@ -166,6 +166,44 @@ export class EmailService {
 
     return { messageId };
   }
+
+  // ── sendDunningEmail ────────────────────────────────────────────────────────
+
+  /**
+   * Send a pre-generated dunning message (no PDF/XML attachments).
+   * Used by DunningSchedulerJob after calling the AI dunning endpoint.
+   */
+  async sendDunningEmail(params: {
+    invoiceId: string;
+    tenantId:  string;
+    to:        string;
+    subject:   string;
+    body:      string;       // plain-text body from AiService
+  }): Promise<{ messageId: string }> {
+    const { to, subject, body } = params;
+
+    // Wrap plain-text body in minimal HTML for email clients
+    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"></head>
+<body style="font-family:Arial,sans-serif;font-size:14px;color:#222;max-width:680px;margin:0 auto;padding:24px 16px;">
+<pre style="white-space:pre-wrap;font-family:inherit;line-height:1.6;">${body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+</body></html>`;
+
+    let messageId: string;
+
+    if (EMAIL_PROVIDER === 'resend') {
+      const resend = new Resend(RESEND_API_KEY);
+      const { data, error } = await resend.emails.send({ from: EMAIL_FROM, to: [to], subject, html });
+      if (error || !data) throw new Error(`Resend dunning: ${error?.message ?? 'no data'}`);
+      messageId = data.id;
+    } else {
+      const transporter = nodemailer.createTransport({ host: SMTP_HOST, port: SMTP_PORT, secure: false });
+      const info = await transporter.sendMail({ from: EMAIL_FROM, to, subject, html });
+      messageId = String(info.messageId);
+    }
+
+    logger.log(`Dunning email sent to ${to} via ${EMAIL_PROVIDER} (msgId=${messageId})`);
+    return { messageId };
+  }
 }
 
 // ── HTML email template ───────────────────────────────────────────────────────
