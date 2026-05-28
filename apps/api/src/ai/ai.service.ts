@@ -329,6 +329,136 @@ const REVIEW_INVOICE_TOOL: Anthropic.Messages.Tool = {
   },
 };
 
+// ── Dunning system prompt (cached) ────────────────────────────────────────────
+
+const DUNNING_SYSTEM_PROMPT = `\
+DUNNING MESSAGE LANGUAGE RULES — apply strictly per language:
+
+LV (Latvian): Formal "Cienījamais/Cienījamā [Lastname]".
+Always use "Jūs" (capital J). Direct but polite. Never tu-form in B2B.
+
+LT (Lithuanian): Formal "Gerbiamas/Gerbiamoji [Name]".
+Use "Jūs". Warmer than LV. Soften urgent messages —
+legalistic tone feels threatening in LT culture.
+
+ET (Estonian): "Lugupeetud [Name]". Short and direct —
+Estonians prefer brevity. Factual, no flowery language.
+
+FI (Finnish): "Hyvä [Name]". Very direct, no small talk.
+State the issue immediately. Factual only — never emotional language.
+
+DE (German): Always "Sehr geehrte/r Herr/Frau [Lastname]".
+Use "Sie". Include EXACT invoice number, EXACT amount,
+EXACT days overdue. Never approximate figures.
+
+FR (French): "Madame/Monsieur [Name]". Always "Vous".
+MUST include formal closing formula:
+"Veuillez agréer, Madame/Monsieur,
+l'expression de mes salutations distinguées."
+
+ES (Spanish): "Estimado/a Sr./Sra. [Lastname]". Use "Usted".
+Warm tone, acknowledge relationship before payment request.
+Spain standard (no vosotros).
+
+IT (Italian): "Gentile Sig./Sig.ra [Lastname]".
+Use formal "Lei" (capital L).
+Acknowledge business relationship first. Include closing formula.
+
+PL (Polish): "Szanowny Panie/Szanowna Pani [Lastname]".
+Use "Pan/Pani" throughout. Formal and structured always.
+
+NL (Dutch): Direct and short. "Geachte heer/mevrouw [Lastname]".
+State problem and solution immediately. Brevity is respected.
+
+SV (Swedish): First name acceptable. "Hej [Firstname]".
+Friendly, direct, short. Swedish B2B is informal —
+overly formal language reads as stiff.
+
+RO (Romanian): "Stimate Domnule/Stimată Doamnă [Lastname]".
+Formal "Dumneavoastră". Include closing formula. Respect hierarchy.
+
+HU (Hungarian): CRITICAL — name order is REVERSED in Hungarian.
+Family name comes FIRST: "Tisztelt [FAMILYNAME] Úr/Asszony!"
+Use "Ön" formal. Wrong name order is a serious cultural mistake.
+Always family name before given name in salutation.
+
+EN (English): "Dear Mr/Ms [Lastname]" or first name if
+relationship established. Professional, clear.
+"Kind regards" closing. UK English for EU context.
+
+TONE BY DAYS OVERDUE:
+1–14 days: polite reminder, assume oversight
+15–30 days: firm, reference previous reminder, request immediate action
+31–60 days: urgent, mention potential consequences
+60+ days: formal notice, reference legal options without direct threats
+
+ALWAYS INCLUDE in every message:
+- Invoice number
+- Exact amount with currency
+- Original due date
+- Days overdue
+- Payment IBAN from invoice
+- Contact details for questions
+
+Always call the generate_dunning_message tool. Never reply in plain text.`;
+
+// ── Dunning tool ──────────────────────────────────────────────────────────────
+
+const DUNNING_MESSAGE_TOOL: Anthropic.Messages.Tool = {
+  name: 'generate_dunning_message',
+  description:
+    'Generate a culturally appropriate payment dunning message for an overdue invoice.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      subject: {
+        type: 'string',
+        description: 'Email subject line (or opening line for WhatsApp)',
+      },
+      body: {
+        type: 'string',
+        description: 'Full message body in the requested language',
+      },
+      tone: {
+        type: 'string',
+        enum: ['polite', 'firm', 'urgent', 'formal_notice'],
+        description: 'Tone applied based on days overdue',
+      },
+      daysOverdue: {
+        type: 'number',
+        description: 'Calculated number of days past the due date',
+      },
+      languageQualityNotes: {
+        type: 'string',
+        description:
+          'Brief notes on language-specific cultural choices made (salutation form, closing formula, name order, etc.)',
+      },
+    },
+    required: ['subject', 'body', 'tone', 'daysOverdue', 'languageQualityNotes'],
+  },
+};
+
+// ── Dunning input / output types ──────────────────────────────────────────────
+
+export interface DunnableInvoice {
+  number: string;
+  currencyCode: string;
+  total: number;
+  issuedAt: Date;
+  dueAt: Date;
+  buyer:  { name: string; email?: string | null; phone?: string | null; country?: string | null };
+  seller: { name: string; email?: string | null; phone?: string | null; iban?: string | null };
+}
+
+export interface DunningResult {
+  subject: string;
+  body: string;
+  tone: 'polite' | 'firm' | 'urgent' | 'formal_notice';
+  daysOverdue: number;
+  languageQualityNotes: string;
+  usage: ParseUsage;
+}
+
 // ── Review input / output types ───────────────────────────────────────────────
 
 export interface ReviewableLine {
@@ -592,6 +722,113 @@ NOTES:
     this.logger.log(
       `Review ${invoice.number}: approved=${result.approved}, ` +
       `issues=${result.issues.length}, cache=${cacheRead > 0 ? 'HIT' : 'MISS'}`,
+    );
+
+    return {
+      ...result,
+      usage: {
+        inputTokens:              u.input_tokens,
+        outputTokens:             u.output_tokens,
+        cacheReadInputTokens:     cacheRead,
+        cacheCreationInputTokens: cacheCreate,
+      },
+    };
+  }
+
+  // ── generateDunningMessage ────────────────────────────────────────────────
+
+  /**
+   * Generate a culturally and linguistically appropriate payment dunning
+   * message for an overdue invoice. Tone is determined automatically from
+   * days overdue; language-specific salutation rules are enforced by the
+   * cached system prompt.
+   */
+  async generateDunningMessage(
+    invoice: DunnableInvoice,
+    language: string,
+    channel: 'email' | 'whatsapp',
+  ): Promise<DunningResult> {
+    const toIso      = (d: Date) => new Date(d).toISOString().slice(0, 10);
+    const daysOverdue = Math.max(
+      0,
+      Math.floor((Date.now() - new Date(invoice.dueAt).getTime()) / 86_400_000),
+    );
+
+    const channelNote =
+      channel === 'whatsapp'
+        ? 'Channel: WHATSAPP — keep under 250 words, plain text only, no markdown, conversational but still culturally appropriate.'
+        : 'Channel: EMAIL — full letter format, proper salutation, body paragraphs, and closing.';
+
+    const context = `\
+Generate a dunning message with the following details:
+
+Language: ${language.toUpperCase()}
+${channelNote}
+
+INVOICE DETAILS:
+  Invoice number : ${invoice.number}
+  Amount due     : ${Number(invoice.total).toFixed(2)} ${invoice.currencyCode}
+  Issue date     : ${toIso(invoice.issuedAt)}
+  Due date       : ${toIso(invoice.dueAt)}
+  Days overdue   : ${daysOverdue}
+
+BUYER (recipient):
+  Name    : ${invoice.buyer.name}
+  Country : ${invoice.buyer.country ?? 'unknown'}
+  Email   : ${invoice.buyer.email ?? '(not on file)'}
+  Phone   : ${invoice.buyer.phone ?? '(not on file)'}
+
+SELLER (sender):
+  Name  : ${invoice.seller.name}
+  Email : ${invoice.seller.email ?? '(not on file)'}
+  Phone : ${invoice.seller.phone ?? '(not on file)'}
+  IBAN  : ${invoice.seller.iban ?? '(not on file)'}`;
+
+    this.logger.debug(
+      `Generating dunning message for ${invoice.number} in ${language.toUpperCase()} (${daysOverdue}d overdue, channel=${channel})`,
+    );
+
+    const response = await this.client.beta.promptCaching.messages.create({
+      model: MODEL,
+      max_tokens: 1024,
+      system: [
+        {
+          type: 'text',
+          text: DUNNING_SYSTEM_PROMPT,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
+      tools: [DUNNING_MESSAGE_TOOL],
+      tool_choice: { type: 'tool', name: 'generate_dunning_message' },
+      messages: [{ role: 'user', content: context }],
+    });
+
+    const toolBlock = response.content.find(
+      (b): b is Anthropic.Messages.ToolUseBlock => b.type === 'tool_use',
+    );
+
+    if (!toolBlock) {
+      throw new Error(
+        'Claude did not return a generate_dunning_message tool-use block. Response: ' +
+          JSON.stringify(response.content),
+      );
+    }
+
+    const result = toolBlock.input as {
+      subject: string;
+      body: string;
+      tone: DunningResult['tone'];
+      daysOverdue: number;
+      languageQualityNotes: string;
+    };
+
+    const u = response.usage;
+    const cacheRead   = u.cache_read_input_tokens   ?? 0;
+    const cacheCreate = u.cache_creation_input_tokens ?? 0;
+
+    this.logger.log(
+      `Dunning ${invoice.number} [${language.toUpperCase()}/${channel}]: tone=${result.tone}, ` +
+      `${daysOverdue}d overdue, cache=${cacheRead > 0 ? 'HIT' : 'MISS'}`,
     );
 
     return {

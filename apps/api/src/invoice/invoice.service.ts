@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -6,8 +7,10 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailQueueService } from '../queue/queue.service';
 import type { CreateInvoiceDto, InvoiceNumberRow } from './invoice.types';
 import type { CreateInvoiceBodyDto } from './dto/create-invoice.dto';
+import type { SendInvoiceDto } from './dto/send-invoice.dto';
 
 // ── Rounding helper ───────────────────────────────────────────────────────────
 
@@ -27,7 +30,10 @@ function vatCategoryCode(ratePercent: number): string {
 export class InvoiceService {
   private readonly logger = new Logger(InvoiceService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma:     PrismaService,
+    private readonly mailQueue:  MailQueueService,
+  ) {}
 
   // ── Primary create endpoint (API-facing) ──────────────────────────────────
 
@@ -403,6 +409,51 @@ export class InvoiceService {
         data:  { status: 'PAID' },
       }),
     ]);
+  }
+
+  // ── Email send: create transmission + enqueue BullMQ job ─────────────────────
+
+  async enqueueSend(
+    tenantId:   string,
+    idOrNumber: string,
+    dto:        SendInvoiceDto,
+  ): Promise<{ jobId: string; transmissionId: string }> {
+    const inv = await this.findByIdOrNumber(tenantId, idOrNumber);
+    const to   = dto.recipientEmail ?? inv.buyer.email;
+
+    if (!to) {
+      throw new BadRequestException(
+        'No email address available for this buyer contact. ' +
+        'Provide recipientEmail in the request body or add an email to the buyer contact.',
+      );
+    }
+
+    // Create PENDING transmission record so the client can track status
+    const transmission = await this.prisma.invoiceTransmission.create({
+      data: {
+        invoiceId:         inv.id,
+        channel:           'EMAIL',
+        status:            'PENDING',
+        recipientEndpoint: to,
+      },
+    });
+
+    // Enqueue job — 3 attempts with 5 s exponential backoff (set in MailQueueService defaults)
+    const jobId = await this.mailQueue.enqueueInvoiceEmail({
+      invoiceId:      inv.id,
+      recipientEmail: to,
+      language:       inv.language ?? 'en',
+      tenantId,
+      transmissionId: transmission.id,
+    });
+
+    // Stamp jobId onto the transmission so it's traceable
+    await this.prisma.invoiceTransmission.update({
+      where: { id: transmission.id },
+      data:  { jobId },
+    });
+
+    return { jobId, transmissionId: transmission.id };
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────────

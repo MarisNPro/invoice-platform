@@ -33,7 +33,7 @@ let service: InvoiceService;
 
 beforeAll(async () => {
   helper  = await PgContainerHelper.start();
-  service = new InvoiceService(helper.prisma);
+  service = new InvoiceService(helper.prisma, { enqueueInvoiceEmail: async () => '' } as never);
 }, 120_000); // allow 2 min for container pull + migration
 
 afterAll(async () => {

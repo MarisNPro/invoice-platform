@@ -26,8 +26,10 @@ import { Roles, Role } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import type { JwtPayload } from '../auth/jwt-payload.interface';
 import { CreateInvoiceBodyDto } from './dto/create-invoice.dto';
+import { DunningMessageDto } from './dto/dunning-message.dto';
+import { SendInvoiceDto } from './dto/send-invoice.dto';
 import type { CreateInvoiceDto } from './invoice.types';
-import type { ReviewableInvoice } from '../ai/ai.service';
+import type { DunnableInvoice, ReviewableInvoice } from '../ai/ai.service';
 
 @Controller('invoices')
 @UseGuards(RolesGuard)
@@ -185,6 +187,74 @@ export class InvoiceController {
     };
 
     return this.ai.reviewInvoice(reviewable);
+  }
+
+  // ── POST /api/v1/invoices/:idOrNumber/dunning-message ────────────────────
+  /**
+   * Generate a culturally appropriate payment dunning message for an overdue
+   * invoice. Tone (polite → formal notice) is derived automatically from days
+   * overdue. Language rules (salutation, name order, closing formula) are
+   * enforced per-locale by the AI system prompt.
+   *
+   * Body: { language: string, channel: "email" | "whatsapp" }
+   * Returns: { subject, body, tone, daysOverdue, languageQualityNotes }
+   */
+  @Post(':idOrNumber/dunning-message')
+  @Roles(Role.ADMIN, Role.ACCOUNTANT)
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  async generateDunningMessage(
+    @Param('idOrNumber') idOrNumber: string,
+    @Body() dto: DunningMessageDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const tenantId = user.tenant_id ?? '';
+    const inv = await this.invoices.findByIdOrNumber(tenantId, idOrNumber);
+
+    const dunnableInvoice: DunnableInvoice = {
+      number:       inv.number,
+      currencyCode: inv.currencyCode,
+      total:        Number(inv.total),
+      issuedAt:     inv.issuedAt,
+      dueAt:        inv.dueAt,
+      buyer: {
+        name:    inv.buyer.name,
+        email:   inv.buyer.email,
+        phone:   inv.buyer.phone,
+        country: inv.buyer.country,
+      },
+      seller: {
+        name:  inv.seller.name,
+        email: inv.seller.email,
+        phone: inv.seller.phone,
+        iban:  inv.seller.iban,
+      },
+    };
+
+    return this.ai.generateDunningMessage(dunnableInvoice, dto.language, dto.channel);
+  }
+
+  // ── POST /api/v1/invoices/:idOrNumber/send ───────────────────────────────
+  /**
+   * Queues an invoice for email delivery via BullMQ → worker → Resend/MailHog.
+   * Body: { channel: "email", recipientEmail?: string }
+   *   - recipientEmail defaults to the buyer contact's email if omitted.
+   *   - Returns 400 if no email is available.
+   * Returns: { jobId, transmissionId, message }
+   */
+  @Post(':idOrNumber/send')
+  @Roles(Role.ADMIN, Role.ACCOUNTANT)
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  async sendInvoiceEmail(
+    @Param('idOrNumber') idOrNumber: string,
+    @Body() dto: SendInvoiceDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    const { jobId, transmissionId } = await this.invoices.enqueueSend(
+      user.tenant_id ?? '',
+      idOrNumber,
+      dto,
+    );
+    return { jobId, transmissionId, message: 'Invoice queued for sending' };
   }
 
   // ── GET /api/v1/invoices/:id ──────────────────────────────────────────────
