@@ -14,9 +14,9 @@ import { makeApiClient } from './api-client.js';
 
 /** Wrap a tool handler so write-only tools return a clear refusal when
  *  the key is read-only. */
-function guardWrite(isReadOnly: boolean, name: string): string | null {
+function guardWrite(isReadOnly: boolean, _name: string): string | null {
   if (isReadOnly) {
-    return `Tool "${name}" is not available with a read-only API key (prefix "ro_").`;
+    return 'Read-only key — upgrade to full access';
   }
   return null;
 }
@@ -36,7 +36,7 @@ function errorText(msg: string) {
 
 // ── factory ───────────────────────────────────────────────────────────────────
 
-export function createMcpServer(orgId: string, isReadOnly: boolean): McpServer {
+export function createMcpServer(orgId: string, isReadOnly: boolean, customerId?: string): McpServer {
   const api    = makeApiClient(orgId);
   const server = new McpServer({
     name:    'invoice-platform',
@@ -147,7 +147,8 @@ export function createMcpServer(orgId: string, isReadOnly: boolean): McpServer {
     async ({ status, limit }) => {
       try {
         const params: Record<string, unknown> = { limit };
-        if (status) params.status = status;
+        if (status)     params.status  = status;
+        if (customerId) params.buyerId = customerId;  // customer-scoped key
         const { data } = await api.get<unknown[]>('/invoices', { params });
         return json(data);
       } catch (err: unknown) {

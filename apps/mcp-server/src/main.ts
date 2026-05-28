@@ -33,16 +33,16 @@ app.get('/health', (_req, res) => {
 // ── SSE endpoint ───────────────────────────────────────────────────────────────
 app.get('/sse', async (req: Request, res: Response) => {
   // Auth
-  const authResult = validateApiKey(req.headers.authorization);
+  const authResult = await validateApiKey(req.headers.authorization);
   if (!authResult) {
     res.status(401).json({ error: 'Unauthorized — provide a valid API key in the Authorization header' });
     return;
   }
 
-  const { orgId, isReadOnly } = authResult;
+  const { orgId, isReadOnly, customerId } = authResult;
 
   // Create per-connection MCP server and transport
-  const mcpServer = createMcpServer(orgId, isReadOnly);
+  const mcpServer = createMcpServer(orgId, isReadOnly, customerId);
   const transport = new SSEServerTransport('/messages', res);
 
   // Track session

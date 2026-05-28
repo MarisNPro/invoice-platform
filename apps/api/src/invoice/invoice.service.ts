@@ -349,20 +349,24 @@ export class InvoiceService {
     status?:  string,
     page    = 1,
     limit   = 20,
+    buyerId?: string,
   ) {
-    const skip = (page - 1) * limit;
+    const skip  = (page - 1) * limit;
+    const where = {
+      tenantId,
+      ...(status  ? { status:  status  as Prisma.EnumInvoiceStatusFilter } : {}),
+      ...(buyerId ? { buyerId } : {}),
+    };
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.invoice.findMany({
-        where:   { tenantId, ...(status ? { status: status as Prisma.EnumInvoiceStatusFilter } : {}) },
+        where,
         include: { buyer: true, seller: true, _count: { select: { lines: true } } },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
       }),
-      this.prisma.invoice.count({
-        where: { tenantId, ...(status ? { status: status as Prisma.EnumInvoiceStatusFilter } : {}) },
-      }),
+      this.prisma.invoice.count({ where }),
     ]);
 
     return {

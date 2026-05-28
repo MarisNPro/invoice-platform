@@ -69,11 +69,12 @@ export class InvoiceController {
   @Get()
   findAll(
     @CurrentUser() user: JwtPayload,
-    @Query('status') status?: string,
+    @Query('status')  status?: string,
+    @Query('buyerId') buyerId?: string,
     @Query('page',  new DefaultValuePipe(1),  ParseIntPipe) page  = 1,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
   ) {
-    return this.invoices.findAll(user.tenant_id ?? '', status, page, limit);
+    return this.invoices.findAll(user.tenant_id ?? '', status, page, limit, buyerId);
   }
 
   // ── GET /api/v1/invoices/:idOrNumber/pdf ─────────────────────────────────

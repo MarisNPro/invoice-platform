@@ -105,6 +105,7 @@ model Tenant {
   bankAccounts    BankAccount[]
   importArchives  ImportArchive[]
   auditLogs       AuditLog[]
+  apiKeys         ApiKey[]
 
   @@map("tenants")
 }
@@ -152,6 +153,7 @@ model Contact {
   addresses      Address[]
   buyerInvoices  Invoice[] @relation("BuyerContact")
   sellerInvoices Invoice[] @relation("SellerContact")
+  apiKeys        ApiKey[]
 
   @@index([tenantId, country])
   @@index([tenantId, vatNumber])
@@ -421,6 +423,30 @@ model InvoiceTransmission {
 
   @@index([invoiceId])
   @@map("invoice_transmissions")
+}
+
+// ── Client API keys (read-only, optionally customer-scoped) ──────────────────
+
+model ApiKey {
+  id         String    @id @default(uuid()) @db.Uuid
+  tenantId   String    @db.Uuid
+  /// Optional: restrict this key to a single buyer contact
+  contactId  String?   @db.Uuid
+  name       String
+  /// SHA-256 hex digest of the plain key — never stored in plain text
+  keyHash    String    @unique @db.VarChar(64)
+  /// First 12 chars of the plain key for UI display (e.g. "ro_00000000_a")
+  keyPrefix  String    @db.VarChar(12)
+  isActive   Boolean   @default(true)
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id])
+  contact Contact? @relation(fields: [contactId], references: [id])
+
+  @@index([keyHash])
+  @@index([tenantId, isActive])
+  @@map("api_keys")
 }
 
 // ── Import archive ────────────────────────────────────────────────────────────
