@@ -6,7 +6,9 @@ import { ConfigService } from '@nestjs/config';
 // different declaration of FastifyPluginAsync than @nestjs/platform-fastify expects.
 // Cast to any — the runtime value is the correct Fastify plugin.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const fastifyHelmet = require('@fastify/helmet') as { default: unknown };
+const fastifyHelmet    = require('@fastify/helmet')    as { default: unknown };
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const fastifyMultipart = require('@fastify/multipart') as { default: unknown };
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -19,6 +21,12 @@ async function bootstrap() {
       trustProxy: true,
     }),
   );
+
+  // ── Multipart file uploads (required for /imports/upload) ────────────────
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await app.register(fastifyMultipart.default as any, {
+    limits: { fileSize: 20 * 1024 * 1024 },  // 20 MB max
+  });
 
   // ── Security headers (OWASP baseline) ────────────────────────────────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

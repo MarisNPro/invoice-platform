@@ -645,6 +645,87 @@ export class AiService {
     return { parsed, missingRequiredFields, notes, usage };
   }
 
+  // ── extractFromPdf ────────────────────────────────────────────────────────
+
+  /**
+   * Extract structured invoice data from a raw PDF buffer.
+   * Sends the PDF as a base64 document to Claude; reuses the same extraction
+   * tool and confidence scoring logic as parseNaturalLanguageInvoice.
+   */
+  async extractFromPdf(pdfBuffer: Buffer, tenantId = ''): Promise<ParseInvoiceResult> {
+    this.logger.debug(`Extracting from PDF (${pdfBuffer.length} bytes)`);
+
+    const base64 = pdfBuffer.toString('base64');
+
+    const response = await this.client.beta.promptCaching.messages.create({
+      model: MODEL,
+      max_tokens: 2048,
+      system: [
+        {
+          type: 'text',
+          text: SYSTEM_PROMPT,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
+      tools: [EXTRACT_INVOICE_TOOL],
+      tool_choice: { type: 'tool', name: 'extract_invoice' },
+      messages: [
+        {
+          role: 'user',
+          // The document block is a beta content type; cast to any to satisfy
+          // TypeScript until the SDK ships stable PDF document typings.
+          content: [
+            {
+              type: 'document',
+              source: { type: 'base64', media_type: 'application/pdf', data: base64 },
+            },
+            {
+              type: 'text',
+              text: 'Extract all invoice fields from this PDF. Follow EN 16931 BT mapping strictly and assign confidence scores.',
+            },
+          ] as never,
+        },
+      ],
+    });
+
+    const toolBlock = response.content.find(
+      (b): b is Anthropic.Messages.ToolUseBlock => b.type === 'tool_use',
+    );
+    if (!toolBlock) {
+      throw new Error('Claude did not return an extract_invoice tool-use block for PDF');
+    }
+
+    const parsed = toolBlock.input as ParsedInvoice;
+
+    const missingRequiredFields: string[] = ['customerId'];
+    const notes: string[] = [];
+    if (parsed.customerName) {
+      notes.push(
+        `Resolve customerId: GET /api/v1/contacts?search=${encodeURIComponent(parsed.customerName)}&isCustomer=true`,
+      );
+    } else {
+      notes.push('Customer name not found in PDF — provide customerId manually.');
+    }
+
+    const u = response.usage;
+    const cacheRead   = u.cache_read_input_tokens   ?? 0;
+    const cacheCreate = u.cache_creation_input_tokens ?? 0;
+
+    if (cacheRead  > 0) this.logger.debug(`PDF extract cache HIT — saved ${cacheRead} tokens`);
+    if (cacheCreate > 0) this.logger.debug(`PDF extract cache MISS — created entry (${cacheCreate} tokens)`);
+
+    const usage: ParseUsage = {
+      inputTokens:              u.input_tokens,
+      outputTokens:             u.output_tokens,
+      cacheReadInputTokens:     cacheRead,
+      cacheCreationInputTokens: cacheCreate,
+    };
+
+    void this.trackSpend(tenantId, usage);
+
+    return { parsed, missingRequiredFields, notes, usage };
+  }
+
   // ── reviewInvoice ─────────────────────────────────────────────────────────
 
   /**
