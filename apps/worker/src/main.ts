@@ -1,7 +1,10 @@
 import 'dotenv/config';
+import { Logger } from './logger';
 import { Worker, Queue } from 'bullmq';
 import { companySyncProcessor } from './jobs/company-sync.processor';
 import { QUEUE_COMPANY_SYNC, JobName } from './jobs/job.constants';
+
+const logger = new Logger('Worker');
 
 const REDIS_URL = process.env['REDIS_URL'] ?? 'redis://localhost:6379';
 const CONCURRENCY = Number(process.env['WORKER_CONCURRENCY'] ?? 5);
@@ -20,7 +23,7 @@ function parseRedisUrl(url: string) {
 const connection = parseRedisUrl(REDIS_URL);
 
 async function main() {
-  console.log('[worker] starting…');
+  logger.log('starting…');
 
   const queue = new Queue(QUEUE_COMPANY_SYNC, { connection });
 
@@ -34,25 +37,25 @@ async function main() {
       connection,
       concurrency: CONCURRENCY,
       removeOnComplete: { count: 100 },
-      removeOnFail: { count: 500 },
+      removeOnFail:     { count: 500 },
     },
   );
 
   worker.on('completed', (job) => {
-    console.log(`[worker] ✓ ${job.name} (${job.id}) completed`);
+    logger.log(`✓ ${job.name} (${job.id}) completed`);
   });
 
   worker.on('failed', (job, err) => {
-    console.error(`[worker] ✗ ${job?.name} (${job?.id}) failed:`, err.message);
+    logger.error(`✗ ${job?.name} (${job?.id}) failed: ${err.message}`);
   });
 
   worker.on('error', (err) => {
-    console.error('[worker] worker error:', err);
+    logger.error(`worker error: ${err.message}`);
   });
 
   // Graceful shutdown
   const shutdown = async (signal: string) => {
-    console.log(`[worker] ${signal} received, shutting down…`);
+    logger.log(`${signal} received, shutting down…`);
     await worker.close();
     await queue.close();
     process.exit(0);
@@ -61,11 +64,11 @@ async function main() {
   process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
   process.on('SIGINT',  () => { void shutdown('SIGINT'); });
 
-  console.log(`[worker] ready (concurrency=${CONCURRENCY})`);
+  logger.log(`ready (concurrency=${CONCURRENCY})`);
 }
 
 async function registerRepeatableJobs(queue: Queue) {
-  const existing = await queue.getRepeatableJobs();
+  const existing     = await queue.getRepeatableJobs();
   const existingNames = new Set(existing.map((j) => j.name));
 
   // Latvia UR — nightly 02:00 UTC
@@ -75,7 +78,7 @@ async function registerRepeatableJobs(queue: Queue) {
       { country: 'LV' },
       { repeat: { pattern: '0 2 * * *' } },
     );
-    console.log(`[worker] registered repeatable job: ${JobName.SYNC_LV}`);
+    logger.log(`registered repeatable job: ${JobName.SYNC_LV}`);
   }
 
   // Lithuania RC — nightly 03:00 UTC
@@ -85,11 +88,11 @@ async function registerRepeatableJobs(queue: Queue) {
       { country: 'LT' },
       { repeat: { pattern: '0 3 * * *' } },
     );
-    console.log(`[worker] registered repeatable job: ${JobName.SYNC_LT}`);
+    logger.log(`registered repeatable job: ${JobName.SYNC_LT}`);
   }
 }
 
-main().catch((err) => {
-  console.error('[worker] fatal:', err);
+main().catch((err: unknown) => {
+  logger.fatal(`fatal: ${String(err)}`);
   process.exit(1);
 });

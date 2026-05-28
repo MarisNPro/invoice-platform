@@ -43,3 +43,4 @@ coverage/
 
 # Docker volumes (if stored locally)
 .docker-data/
+test-invoice.*

@@ -5,6 +5,7 @@ import {
   HttpStatus,
   Post,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { IsNotEmpty, IsString } from 'class-validator';
 import { Public } from '../auth/public.decorator';
 import { AiService } from './ai.service';
@@ -24,8 +25,9 @@ class ParseInvoiceBodyDto {
  * Public endpoint that parses a natural-language invoice description into
  * structured EN 16931 / Peppol BIS 3.0 field values using Claude AI.
  *
- * No authentication required — the endpoint is rate-limited by the underlying
- * Anthropic quota and should be fronted by an API gateway in production.
+ * Rate limit: 10 requests / 60 s per IP (overrides the global 120 req/60 s
+ * default) because every call proxies to the Anthropic API and can be
+ * computationally expensive.
  *
  * POST /api/v1/invoices/parse
  * Body: { "text": "Invoice Nokia for 40 hours consulting at 120 EUR 21% VAT" }
@@ -37,6 +39,8 @@ export class ParseController {
   @Post('parse')
   @Public()
   @HttpCode(HttpStatus.OK)
+  // 10 req / 60 s per IP — tighter than global default due to Anthropic API cost
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   parse(@Body() dto: ParseInvoiceBodyDto) {
     return this.ai.parseNaturalLanguageInvoice(dto.text);
   }

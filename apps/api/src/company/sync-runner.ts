@@ -10,7 +10,7 @@
 
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ElasticsearchModule } from '../common/elasticsearch/elasticsearch.module';
 import { CompanySyncService } from './company-sync.service';
@@ -29,26 +29,28 @@ class SyncModule {}
 
 async function bootstrap() {
   const target = (process.argv[2] ?? 'all').toLowerCase();
-  const app = await NestFactory.createApplicationContext(SyncModule, { logger: ['log', 'warn', 'error'] });
-  const svc = app.get(CompanySyncService);
+  const app    = await NestFactory.createApplicationContext(SyncModule, { logger: ['log', 'warn', 'error'] });
+  const svc    = app.get(CompanySyncService);
+  const logger = new Logger('SyncRunner');
 
   if (target === 'lv' || target === 'all') {
-    console.log('\n=== Latvia sync ===');
+    logger.log('=== Latvia sync ===');
     const lv = await svc.syncLatvia();
-    console.log(`LV done — indexed: ${lv.indexed}, skipped: ${lv.skipped}`);
+    logger.log(`LV done — indexed: ${lv.indexed}, skipped: ${lv.skipped}`);
   }
 
   if (target === 'lt' || target === 'all') {
-    console.log('\n=== Lithuania sync ===');
+    logger.log('=== Lithuania sync ===');
     const lt = await svc.syncLithuania();
-    console.log(`LT done — indexed: ${lt.indexed}, skipped: ${lt.skipped}`);
+    logger.log(`LT done — indexed: ${lt.indexed}, skipped: ${lt.skipped}`);
   }
 
   await app.close();
   process.exit(0);
 }
 
-bootstrap().catch((err) => {
-  console.error('Sync failed:', err);
+bootstrap().catch((err: unknown) => {
+  const logger = new Logger('SyncRunner');
+  logger.fatal(`Sync failed: ${String(err)}`);
   process.exit(1);
 });

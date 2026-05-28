@@ -1,4 +1,5 @@
 import type { Job, Processor } from 'bullmq';
+import { Logger } from '../logger';
 import axios from 'axios';
 import { parse } from 'csv-parse';
 import { Readable } from 'stream';
@@ -24,18 +25,17 @@ interface CompanyDoc {
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const ES_URL = process.env['ELASTICSEARCH_URL'] ?? 'http://localhost:9200';
-const ES_INDEX = process.env['ELASTICSEARCH_INDEX_COMPANIES'] ?? 'companies';
-const LV_CSV_URL =
-  process.env['LV_UR_CSV_URL'] ??
+const ES_URL    = process.env['ELASTICSEARCH_URL']        ?? 'http://localhost:9200';
+const ES_INDEX  = process.env['ELASTICSEARCH_INDEX_COMPANIES'] ?? 'companies';
+const LV_CSV_URL = process.env['LV_UR_CSV_URL'] ??
   'https://ur.gov.lv/en/open-data/companies.csv';
-const LT_CSV_URL =
-  process.env['LT_RC_CSV_URL'] ??
+const LT_CSV_URL = process.env['LT_RC_CSV_URL'] ??
   'https://www.registrucentras.lt/jar/p/doc/jar_iregistruoti_statiniai.csv';
 
 const BATCH_SIZE = 500;
 
-const es = new ESClient({ node: ES_URL });
+const es     = new ESClient({ node: ES_URL });
+const logger = new Logger('CompanySyncProcessor');
 
 // ── Processor ─────────────────────────────────────────────────────────────────
 
@@ -45,7 +45,7 @@ export const companySyncProcessor: Processor<CompanySyncJobData> = async (
   const { country, csvUrl } = job.data;
   const url = csvUrl ?? (country === 'LV' ? LV_CSV_URL : LT_CSV_URL);
 
-  console.log(`[${job.name}] downloading ${url}`);
+  logger.log(`[${job.name}] downloading ${url}`);
   await job.updateProgress(5);
 
   const response = await axios.get<ArrayBuffer>(url, {
@@ -55,13 +55,13 @@ export const companySyncProcessor: Processor<CompanySyncJobData> = async (
   });
 
   const buffer = Buffer.from(response.data);
-  console.log(`[${job.name}] downloaded ${(buffer.length / 1024 / 1024).toFixed(1)} MB`);
+  logger.log(`[${job.name}] downloaded ${(buffer.length / 1024 / 1024).toFixed(1)} MB`);
   await job.updateProgress(20);
 
   await ensureIndex();
 
   let totalIndexed = 0;
-  let totalErrors = 0;
+  let totalErrors  = 0;
   let batch: CompanyDoc[] = [];
 
   const flush = async () => {
@@ -97,9 +97,7 @@ export const companySyncProcessor: Processor<CompanySyncJobData> = async (
   await es.indices.refresh({ index: ES_INDEX });
 
   await job.updateProgress(100);
-  console.log(
-    `[${job.name}] done — indexed: ${totalIndexed}, errors: ${totalErrors}`,
-  );
+  logger.log(`[${job.name}] done — indexed: ${totalIndexed}, errors: ${totalErrors}`);
 
   return { country, totalIndexed, totalErrors };
 };
@@ -124,20 +122,20 @@ function buildLvParser(buffer: Buffer): AsyncIterable<Omit<CompanyDoc, 'country'
     for await (const row of parser) {
       const cols = row as string[];
       const regNum = cols[0]?.trim();
-      const name = cols[1]?.trim();
+      const name   = cols[1]?.trim();
       if (!regNum || !name) continue;
 
       yield {
-        id: `lv-${regNum}`,
+        id:                 `lv-${regNum}`,
         name,
-        nameLower: name.toLowerCase(),
+        nameLower:          name.toLowerCase(),
         registrationNumber: regNum,
-        vatNumber: cols[8]?.trim() || undefined,
-        status: mapLvStatus(cols[2]?.trim()),
-        registeredAt: parseDate(cols[3]?.trim()),
-        street: cols[5]?.trim() || undefined,
-        city: cols[6]?.trim() || undefined,
-        postalCode: cols[7]?.trim() || undefined,
+        vatNumber:          cols[8]?.trim() || undefined,
+        status:             mapLvStatus(cols[2]?.trim()),
+        registeredAt:       parseDate(cols[3]?.trim()),
+        street:             cols[5]?.trim() || undefined,
+        city:               cols[6]?.trim() || undefined,
+        postalCode:         cols[7]?.trim() || undefined,
       };
     }
   })();
@@ -163,19 +161,19 @@ function buildLtParser(buffer: Buffer): AsyncIterable<Omit<CompanyDoc, 'country'
     for await (const row of parser) {
       const cols = row as string[];
       const regNum = cols[0]?.trim();
-      const name = cols[1]?.trim();
+      const name   = cols[1]?.trim();
       if (!regNum || !name) continue;
 
       yield {
-        id: `lt-${regNum}`,
+        id:                 `lt-${regNum}`,
         name,
-        nameLower: name.toLowerCase(),
+        nameLower:          name.toLowerCase(),
         registrationNumber: regNum,
-        status: mapLtStatus(cols[2]?.trim()),
-        registeredAt: parseDate(cols[3]?.trim()),
-        street: cols[4]?.trim() || undefined,
-        city: cols[5]?.trim() || undefined,
-        postalCode: cols[6]?.trim() || undefined,
+        status:             mapLtStatus(cols[2]?.trim()),
+        registeredAt:       parseDate(cols[3]?.trim()),
+        street:             cols[4]?.trim() || undefined,
+        city:               cols[5]?.trim() || undefined,
+        postalCode:         cols[6]?.trim() || undefined,
       };
     }
   })();
@@ -219,23 +217,23 @@ async function ensureIndex() {
       mappings: {
         properties: {
           name: {
-            type: 'text',
+            type:     'text',
             analyzer: 'standard',
-            fields: { keyword: { type: 'keyword' } },
+            fields:   { keyword: { type: 'keyword' } },
           },
-          nameLower: { type: 'keyword' },
+          nameLower:          { type: 'keyword' },
           registrationNumber: { type: 'keyword' },
-          vatNumber: { type: 'keyword' },
-          country: { type: 'keyword' },
-          status: { type: 'keyword' },
-          street: { type: 'text' },
-          city: { type: 'keyword' },
-          postalCode: { type: 'keyword' },
-          registeredAt: { type: 'date' },
-          syncedAt: { type: 'date' },
+          vatNumber:          { type: 'keyword' },
+          country:            { type: 'keyword' },
+          status:             { type: 'keyword' },
+          street:             { type: 'text' },
+          city:               { type: 'keyword' },
+          postalCode:         { type: 'keyword' },
+          registeredAt:       { type: 'date' },
+          syncedAt:           { type: 'date' },
         },
       },
     },
   });
-  console.log(`[worker] Elasticsearch index "${ES_INDEX}" created`);
+  logger.log(`Elasticsearch index "${ES_INDEX}" created`);
 }
