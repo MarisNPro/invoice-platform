@@ -145,6 +145,29 @@ services:
       timeout: 5s
       retries: 3
 
+  # ── MCP Server ───────────────────────────────────────────────────────────────
+  mcp-server:
+    build:
+      context: .
+      dockerfile: apps/mcp-server/Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      NODE_ENV: development
+      APP_BASE_URL: http://host.docker.internal:4000
+      MCP_PORT: "4020"
+      MCP_API_KEYS: "{}"
+      MCP_DEV_KEY: "dev_mcp_local_key"
+      MCP_DEV_ORG_ID: "00000000-0000-0000-0000-000000000001"
+    ports:
+      - "4020:4020"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:4020/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
   # ── BullBoard (BullMQ dashboard) ──────────────────────────────────────────────
   bullboard:
     image: deadly0/bull-board:latest
