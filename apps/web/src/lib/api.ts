@@ -115,6 +115,16 @@ export interface ImportRecord {
   needsReview:   boolean;
 }
 
+export interface ImportListItem {
+  id:                     string;
+  fileName:               string;
+  status:                 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  createdAt:              string;
+  completedAt:            string | null;
+  confidencePct:          number | null;
+  confirmedInvoiceNumber: string | null;
+}
+
 export interface ConfirmResult {
   importId:      string;
   invoiceId:     string;

@@ -477,10 +477,11 @@ model ImportArchive {
   status        ImportStatus @default(PENDING)
   recordCount   Int?
   errorCount    Int?
-  errors        Json?
-  extractedData Json?
-  createdAt     DateTime     @default(now())
-  completedAt   DateTime?
+  errors                 Json?
+  extractedData          Json?
+  confirmedInvoiceNumber String?
+  createdAt              DateTime     @default(now())
+  completedAt            DateTime?
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
 

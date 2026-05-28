@@ -317,6 +317,16 @@ async function upsertSampleInvoice(
   issueDate: Date,
   dueDate:   Date,
 ) {
+  // ── Idempotent counter upsert — always runs, even on re-seed ────────────────
+  // GREATEST ensures we never move the counter backwards. This must run before
+  // the early-return so it is set regardless of whether the invoice exists yet.
+  await prisma.$executeRaw`
+    INSERT INTO invoice_counters (id, "tenantId", prefix, year, last)
+    VALUES (gen_random_uuid(), ${TENANT_ID}::uuid, 'INV', 2026, 1)
+    ON CONFLICT ("tenantId", prefix, year)
+    DO UPDATE SET last = GREATEST(invoice_counters.last, 1)
+  `;
+
   const exists = await prisma.invoice.findFirst({ where: { tenantId, number: 'INV-2026-00001' } });
   if (exists) {
     await prisma.invoice.update({
@@ -384,13 +394,6 @@ async function upsertSampleInvoice(
       },
     },
   });
-
-  // Bump invoice counter so next auto-assigned number is 00002
-  await prisma.$executeRaw`
-    INSERT INTO invoice_counters (id, "tenantId", prefix, year, last)
-    VALUES (gen_random_uuid(), ${TENANT_ID}::uuid, 'INV', 2026, 1)
-    ON CONFLICT ("tenantId", prefix, year) DO NOTHING
-  `;
 
   console.log('  ✓ sample invoice INV-2026-00001 created');
 }

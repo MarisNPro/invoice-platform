@@ -153,6 +153,33 @@ export class ImportService {
     };
   }
 
+  // ── Find all ───────────────────────────────────────────────────────────────
+
+  async findAll(tenantId: string) {
+    const archives = await this.prisma.importArchive.findMany({
+      where:   { tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return archives.map((a) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const conf = (a.extractedData as Record<string, any> | null)?.['confidence'] as
+        | Record<string, number>
+        | undefined;
+      const overallPct = conf ? Math.round((conf['overall'] ?? 1) * 100) : null;
+
+      return {
+        id:                    a.id,
+        fileName:              a.fileName,
+        status:                a.status,
+        createdAt:             a.createdAt,
+        completedAt:           a.completedAt,
+        confidencePct:         overallPct,
+        confirmedInvoiceNumber: a.confirmedInvoiceNumber,
+      };
+    });
+  }
+
   // ── Get one ────────────────────────────────────────────────────────────────
 
   async getOne(tenantId: string, importId: string) {
@@ -298,7 +325,7 @@ export class ImportService {
 
     await this.prisma.importArchive.update({
       where: { id: importId },
-      data:  { completedAt: new Date() },
+      data:  { completedAt: new Date(), confirmedInvoiceNumber: invoice.number },
     });
 
     this.logger.log(`Import ${importId} confirmed → invoice ${invoice.number}`);

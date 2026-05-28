@@ -47,6 +47,15 @@ export class ImportController {
   }
 
   /**
+   * GET /api/v1/imports
+   * Returns all import archives for the authenticated tenant, newest first.
+   */
+  @Get()
+  findAll(@CurrentUser() user: JwtPayload) {
+    return this.importService.findAll(user.tenant_id ?? '');
+  }
+
+  /**
    * GET /api/v1/imports/:id
    * Returns the import archive record with extractedData and needsReview flag.
    */
