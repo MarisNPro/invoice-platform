@@ -17,8 +17,20 @@ const prisma = new PrismaClient({ log: ['warn', 'error'] });
 const TENANT_SLUG = 'dev-tenant';
 const TENANT_ID   = '00000000-0000-0000-0000-000000000001';
 
+/** Return a Date that is `n` calendar days before today (time zeroed to UTC midnight). */
+function daysAgo(n: number): Date {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() - n);
+  return d;
+}
+
 async function main() {
   console.log('🌱  Seeding…');
+
+  // Dynamic demo dates — always 14 days ago → 7 days overdue
+  const issueDate = daysAgo(14);
+  const dueDate   = daysAgo(7);
 
   // 1. Install custom PostgreSQL function (idempotent — uses CREATE OR REPLACE)
   await installFunctions();
@@ -165,8 +177,15 @@ async function main() {
   const products = await upsertProducts(tenant.id, standardRate?.id);
   console.log(`  ✓ ${products.length} products`);
 
-  // 8. Sample draft invoice
-  await upsertSampleInvoice(tenant.id, seller.id, buyer.id, rates, products);
+  // 8. Fix any existing invoices with stale hard-coded dates (pre-2026)
+  const { count: fixed } = await prisma.invoice.updateMany({
+    where: { tenantId: tenant.id, issuedAt: { lt: new Date('2026-01-01') } },
+    data:  { issuedAt: issueDate, dueAt: dueDate },
+  });
+  if (fixed > 0) console.log(`  ✓ updated ${fixed} stale invoice date(s)`);
+
+  // 9. Sample draft invoice (creates or refreshes dates)
+  await upsertSampleInvoice(tenant.id, seller.id, buyer.id, rates, products, issueDate, dueDate);
 
   console.log('✅  Seed complete');
 }
@@ -271,15 +290,22 @@ async function upsertProducts(tenantId: string, defaultTaxRateId?: string) {
 // ── Sample invoice ─────────────────────────────────────────────────────────────
 
 async function upsertSampleInvoice(
-  tenantId: string,
-  sellerId: string,
-  buyerId:  string,
-  rates: Awaited<ReturnType<typeof upsertTaxRates>>,
-  products: Awaited<ReturnType<typeof upsertProducts>>,
+  tenantId:  string,
+  sellerId:  string,
+  buyerId:   string,
+  rates:     Awaited<ReturnType<typeof upsertTaxRates>>,
+  products:  Awaited<ReturnType<typeof upsertProducts>>,
+  issueDate: Date,
+  dueDate:   Date,
 ) {
   const exists = await prisma.invoice.findFirst({ where: { tenantId, number: 'INV-2026-00001' } });
   if (exists) {
-    console.log('  ✓ sample invoice already exists, skipping');
+    await prisma.invoice.update({
+      where: { id: exists.id },
+      data:  { issuedAt: issueDate, dueAt: dueDate },
+    });
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    console.log(`  ✓ sample invoice dates → ${fmt(issueDate)} / due ${fmt(dueDate)}`);
     return;
   }
 
@@ -301,8 +327,8 @@ async function upsertSampleInvoice(
       status:       'DRAFT',
       sellerId,
       buyerId,
-      issuedAt:     new Date('2026-05-01'),
-      dueAt:        new Date('2026-05-31'),
+      issuedAt:     issueDate,
+      dueAt:        dueDate,
       currencyCode: 'EUR',
       buyerReference: 'PO-2026-042',
       note:         'Payment within 30 days. Thank you for your business.',
