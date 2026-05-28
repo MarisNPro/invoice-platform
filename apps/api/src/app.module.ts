@@ -10,6 +10,7 @@ import { HealthController } from './health/health.controller';
 import { InvoiceModule } from './invoice/invoice.module';
 import { CompanyModule } from './company/company.module';
 import { ContactModule } from './contact/contact.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { ContactModule } from './contact/contact.module';
     InvoiceModule,
     CompanyModule,
     ContactModule,
+    AiModule,
   ],
   controllers: [HealthController],
 })

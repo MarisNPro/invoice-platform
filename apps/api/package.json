@@ -24,6 +24,7 @@
     "seed": "ts-node --transpile-only --project tsconfig.json prisma/seed.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
     "@elastic/elasticsearch": "^8.13.1",
     "@invoice/ubl-builder": "workspace:*",
     "@nestjs/axios": "^3.0.2",

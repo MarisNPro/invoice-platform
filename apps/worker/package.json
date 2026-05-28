@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
     "@elastic/elasticsearch": "^8.13.1",
     "@prisma/client": "^5.16.0",
     "axios": "^1.7.2",
