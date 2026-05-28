@@ -14,8 +14,9 @@ const prisma = new PrismaClient({ log: ['warn', 'error'] });
 
 // ── Idempotent upsert helpers ─────────────────────────────────────────────────
 
-const TENANT_SLUG = 'dev-tenant';
-const TENANT_ID   = '00000000-0000-0000-0000-000000000001';
+const TENANT_SLUG            = 'dev-tenant';
+const TENANT_ID              = '00000000-0000-0000-0000-000000000001';
+const SUPERADMIN_KEYCLOAK_ID = '00000000-0000-0000-0000-000000000099';
 
 /** Return a Date that is `n` calendar days before today (time zeroed to UTC midnight). */
 function daysAgo(n: number): Date {
@@ -98,11 +99,29 @@ async function main() {
   });
   console.log(`  ✓ tenant: ${tenant.name} (${tenant.id})`);
 
-  // 3. Tax rates — EU standard + zero
+  // 3. Superadmin user (keycloakId matches infra/keycloak/realms/invoice-platform.json)
+  await prisma.user.upsert({
+    where:  { keycloakId: SUPERADMIN_KEYCLOAK_ID },
+    update: { isActive: true, firstName: 'Super', lastName: 'Admin' },
+    create: {
+      id:         '00000000-0000-0000-0000-000000000099',
+      tenantId:   TENANT_ID,
+      keycloakId: SUPERADMIN_KEYCLOAK_ID,
+      email:      'superadmin@invoiceplatform.local',
+      name:       'Super Admin',
+      firstName:  'Super',
+      lastName:   'Admin',
+      role:       'ADMIN',
+      isActive:   true,
+    },
+  });
+  console.log('  ✓ superadmin user seeded (superadmin@invoiceplatform.local)');
+
+  // 4. Tax rates — EU standard + zero
   const rates = await upsertTaxRates(tenant.id);
   console.log(`  ✓ ${rates.length} tax rates`);
 
-  // 4. Bank account
+  // 5. Bank account
   await prisma.bankAccount.upsert({
     where: { id: '00000000-0000-0000-0000-000000000010' },
     update: {},
@@ -117,7 +136,7 @@ async function main() {
     },
   });
 
-  // 5. Seller contact (own company, same as tenant)
+  // 6. Seller contact (own company, same as tenant)
   const seller = await prisma.contact.upsert({
     where: { id: '00000000-0000-0000-0000-000000000020' },
     update: {},
@@ -145,7 +164,7 @@ async function main() {
   });
   console.log(`  ✓ seller: ${seller.name}`);
 
-  // 6. Buyer contact (Finnish customer)
+  // 7. Buyer contact (Finnish customer)
   const buyer = await prisma.contact.upsert({
     where: { id: '00000000-0000-0000-0000-000000000030' },
     update: {},
@@ -172,19 +191,19 @@ async function main() {
   });
   console.log(`  ✓ buyer: ${buyer.name}`);
 
-  // 7. Products
+  // 8. Products
   const standardRate = rates.find((r) => r.categoryCode === 'S' && r.name.includes('22%'));
   const products = await upsertProducts(tenant.id, standardRate?.id);
   console.log(`  ✓ ${products.length} products`);
 
-  // 8. Fix any existing invoices with stale hard-coded dates (pre-2026)
+  // 9. Fix any existing invoices with stale hard-coded dates (pre-2026)
   const { count: fixed } = await prisma.invoice.updateMany({
     where: { tenantId: tenant.id, issuedAt: { lt: new Date('2026-01-01') } },
     data:  { issuedAt: issueDate, dueAt: dueDate },
   });
   if (fixed > 0) console.log(`  ✓ updated ${fixed} stale invoice date(s)`);
 
-  // 9. Sample draft invoice (creates or refreshes dates)
+  // 10. Sample draft invoice (creates or refreshes dates)
   await upsertSampleInvoice(tenant.id, seller.id, buyer.id, rates, products, issueDate, dueDate);
 
   console.log('✅  Seed complete');

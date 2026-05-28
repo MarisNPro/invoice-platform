@@ -96,6 +96,7 @@
   ],
   "users": [
     {
+      "id": "00000000-0000-0000-0000-000000000099",
       "username": "superadmin",
       "email": "superadmin@invoiceplatform.local",
       "firstName": "Super",

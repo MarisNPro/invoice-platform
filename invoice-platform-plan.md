@@ -1,6 +1,6 @@
 # Invoice Platform — Master Plan
 **Last updated:** May 2026  
-**Status:** Phase 1 in progress — ~55% complete  
+**Status:** Phase 1 — Week 5 started (~82% of Phase 1 complete)  
 **Stack:** Turborepo · NestJS · Next.js 14 · PostgreSQL (Supabase) · Elasticsearch · Keycloak · Vercel · Hetzner/Coolify
 
 ---
@@ -28,7 +28,7 @@ A Claude-native EU e-invoicing platform targeting Latvian, Estonian, Lithuanian,
 | VAT engine | EN 16931 BG-22 + BG-23, all EU rates seeded |
 | PDF/A-3 | All mandatory BT fields, downloadable |
 | UBL 2.1 XML | Peppol BIS 3.0 valid, all 9 validation checks passing |
-| Tests | 60 unit tests, CI green, Node 22 |
+| Tests | 87 unit tests, CI green, Node 22 |
 | GitHub | github.com/MarisNPro/invoice-platform |
 | Deployment config | Supabase + Vercel + Hetzner/Coolify files ready |
 
@@ -75,16 +75,19 @@ A Claude-native EU e-invoicing platform targeting Latvian, Estonian, Lithuanian,
 ### WEEK 4 — Smart features + Cowork + Email
 *Priority: Product completeness. Email and dunning are required for any paying customer.*
 
+> 🟢 **WEEK 4 QUALITY GATE — PASSED 7/8 — 2026-05-28**
+
 | # | Task | Type | Effort |
 |---|---|---|---|
-| 9 | Smart invoice review — EN 16931 compliance check before send | AI | 1 day |
-| 10 | Smart dunning messages — personalised, 14 languages | AI | 1 day |
-| 11 | Email delivery — Resend, PDF attachment, BullMQ scheduler | Core | 1 day |
-| 12 | Client read-only API keys — scoped by customerId | MCP | Half day |
-| 13 | `save_to_local` MCP tool — PDF + XML to user outbox/ | Cowork | Half day |
-| 14 | CONTEXT.md generator — `GET /api/v1/organisations/cowork-context` | Cowork | 2 hours |
-| 15 | Cowork onboarding step — /onboarding/cowork, folder ZIP download | Cowork | Half day |
-| 16 | Compliance warning UI — block B2G Peppol + PII via Cowork | Cowork | 2 hours |
+| 9 | ✅ Smart invoice review — EN 16931 compliance check before send | AI | 1 day |
+| 10 | ✅ Smart dunning messages — personalised, 14 languages | AI | 1 day |
+| 11 | ✅ Email delivery — Resend, PDF attachment, BullMQ scheduler | Core | 1 day |
+| 12 | ✅ Client read-only API keys — scoped by customerId | MCP | Half day |
+| 13 | ✅ `save_to_local` MCP tool — PDF + XML to user outbox/ | Cowork | Half day |
+| 14 | ✅ CONTEXT.md generator — `GET /api/v1/organisations/cowork-context` | Cowork | 2 hours |
+| 15 | ✅ Cowork onboarding step — /onboarding/cowork, folder ZIP download | Cowork | Half day |
+| 16 | ✅ Compliance warning UI — block B2G Peppol + PII via Cowork | Cowork | 2 hours |
+| 17 | ✅ Superadmin panel P1 — 13 endpoints | Admin | 1 day |
 
 ### WEEK 5 — Import pipeline + Cowork automation
 *Priority: Unique feature. No Baltic competitor has invoice OCR + AI extraction.*
