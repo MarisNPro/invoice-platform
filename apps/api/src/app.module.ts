@@ -13,6 +13,8 @@ import { InvoiceModule } from './invoice/invoice.module';
 import { CompanyModule } from './company/company.module';
 import { ContactModule } from './contact/contact.module';
 import { AiModule } from './ai/ai.module';
+import { OrganisationModule } from './organisation/organisation.module';
+import { AdminModule } from './admin/admin.module';
 import { FastifyThrottlerGuard } from './common/fastify-throttler.guard';
 
 @Module({
@@ -50,6 +52,8 @@ import { FastifyThrottlerGuard } from './common/fastify-throttler.guard';
     CompanyModule,
     ContactModule,
     AiModule,
+    OrganisationModule,
+    AdminModule,
   ],
   controllers: [HealthController],
   providers: [

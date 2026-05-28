@@ -9,9 +9,11 @@ import {
   sendInvoiceEmailProcessor,
   handlePermanentEmailFailure,
 } from './jobs/send-invoice-email.job';
+import { resetMonthlyCountersProcessor } from './jobs/reset-monthly-counters.job';
 import {
   QUEUE_COMPANY_SYNC,
   QUEUE_INVOICE_EMAIL,
+  QUEUE_MONTHLY_RESET,
   JobName,
 } from './jobs/job.constants';
 import type { SendInvoiceEmailJobData } from './jobs/job.constants';
@@ -83,10 +85,27 @@ async function main() {
 
   emailWorker.on('error', (err) => logger.error(`email worker error: ${err.message}`));
 
+  // ── Monthly AI spend reset queue (1st of every month, 00:00 UTC) ─────────
+  const resetQueue = new Queue(QUEUE_MONTHLY_RESET, { connection });
+  await registerResetJob(resetQueue);
+
+  const resetWorker = new Worker(
+    QUEUE_MONTHLY_RESET,
+    resetMonthlyCountersProcessor,
+    { connection, concurrency: 1, removeOnComplete: { count: 12 }, removeOnFail: { count: 12 } },
+  );
+
+  resetWorker.on('completed', (job) => logger.log(`✓ ${job.name} (${job.id}) reset done`));
+  resetWorker.on('failed',    (job, err) => logger.error(`✗ ${job?.name} reset failed: ${err.message}`));
+  resetWorker.on('error',     (err) => logger.error(`reset worker error: ${err.message}`));
+
   // ── Graceful shutdown ─────────────────────────────────────────────────────
   const shutdown = async (signal: string) => {
     logger.log(`${signal} received, shutting down…`);
-    await Promise.all([syncWorker.close(), emailWorker.close(), syncQueue.close(), emailQueue.close()]);
+    await Promise.all([
+      syncWorker.close(), emailWorker.close(), resetWorker.close(),
+      syncQueue.close(),  emailQueue.close(),  resetQueue.close(),
+    ]);
     process.exit(0);
   };
 
@@ -94,6 +113,18 @@ async function main() {
   process.on('SIGINT',  () => { void shutdown('SIGINT'); });
 
   logger.log(`ready (concurrency=${CONCURRENCY})`);
+}
+
+async function registerResetJob(queue: Queue) {
+  const existing = await queue.getRepeatableJobs();
+  if (existing.some((j) => j.name === JobName.RESET_MONTHLY)) return;
+
+  await queue.add(
+    JobName.RESET_MONTHLY,
+    {},
+    { repeat: { pattern: '0 0 1 * *' } },  // midnight UTC on 1st of each month
+  );
+  logger.log(`registered repeatable job: ${JobName.RESET_MONTHLY}`);
 }
 
 async function registerRepeatableJobs(queue: Queue) {

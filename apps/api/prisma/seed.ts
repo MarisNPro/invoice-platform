@@ -25,15 +25,63 @@ async function main() {
 
   // 2. Tenant
   const tenant = await prisma.tenant.upsert({
-    where: { slug: TENANT_SLUG },
+    where:  { slug: TENANT_SLUG },
+    update: { plan: 'STARTER', monthlyAiSpendLimit: 500 },
+    create: {
+      id:                  TENANT_ID,
+      name:                'Dev Company OÜ',
+      slug:                TENANT_SLUG,
+      vatNumber:           'EE123456789',
+      country:             'EE',
+      locale:              'en',
+      plan:                'STARTER',
+      monthlyAiSpendLimit: 500,    // €5.00/month — STARTER tier
+    },
+  });
+
+  // Extra example tenants (one per plan tier for admin dashboard demo)
+  await prisma.tenant.upsert({
+    where:  { slug: 'demo-free' },
     update: {},
     create: {
-      id:        TENANT_ID,
-      name:      'Dev Company OÜ',
-      slug:      TENANT_SLUG,
-      vatNumber: 'EE123456789',
-      country:   'EE',
-      locale:    'en',
+      id:                  '00000000-0000-0000-0000-000000000002',
+      name:                'Free Demo Ltd',
+      slug:                'demo-free',
+      country:             'LV',
+      locale:              'lv',
+      plan:                'FREE',
+      monthlyAiSpendLimit: 200,    // €2.00/month
+      monthlyAiSpendCents: 187,    // 93% used — demo high-usage scenario
+    },
+  });
+
+  await prisma.tenant.upsert({
+    where:  { slug: 'demo-business' },
+    update: {},
+    create: {
+      id:                  '00000000-0000-0000-0000-000000000003',
+      name:                'Business Corp AS',
+      slug:                'demo-business',
+      country:             'LT',
+      locale:              'lt',
+      plan:                'BUSINESS',
+      monthlyAiSpendLimit: 2000,   // €20.00/month
+      monthlyAiSpendCents: 340,    // €3.40 used — healthy margin
+    },
+  });
+
+  await prisma.tenant.upsert({
+    where:  { slug: 'demo-professional' },
+    update: {},
+    create: {
+      id:                  '00000000-0000-0000-0000-000000000004',
+      name:                'Professional GmbH',
+      slug:                'demo-professional',
+      country:             'DE',
+      locale:              'de',
+      plan:                'PROFESSIONAL',
+      monthlyAiSpendLimit: -1,     // unlimited
+      monthlyAiSpendCents: 5820,   // €58.20 used this month
     },
   });
   console.log(`  ✓ tenant: ${tenant.name} (${tenant.id})`);

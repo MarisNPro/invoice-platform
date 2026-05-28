@@ -1,0 +1,7 @@
+-- CreateEnum
+CREATE TYPE "Plan" AS ENUM ('FREE', 'STARTER', 'BUSINESS', 'PROFESSIONAL');
+
+-- AlterTable
+ALTER TABLE "tenants" ADD COLUMN     "monthlyAiSpendCents" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "monthlyAiSpendLimit" INTEGER NOT NULL DEFAULT 200,
+ADD COLUMN     "plan" "Plan" NOT NULL DEFAULT 'FREE';

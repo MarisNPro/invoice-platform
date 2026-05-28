@@ -56,6 +56,13 @@ enum ImportStatus {
   FAILED
 }
 
+enum Plan {
+  FREE
+  STARTER
+  BUSINESS
+  PROFESSIONAL
+}
+
 enum TransmissionChannel {
   EMAIL
   WHATSAPP
@@ -78,6 +85,14 @@ model Tenant {
   vatNumber String?
   country   String   @db.Char(2)
   locale    String   @default("en") @db.VarChar(5)
+
+  // ── Billing / AI spend ────────────────────────────────────────────────────
+  plan                Plan @default(FREE)
+  /// Running AI spend this calendar month, in euro cents
+  monthlyAiSpendCents Int  @default(0)
+  /// Soft cap in euro cents; -1 = unlimited (PROFESSIONAL)
+  monthlyAiSpendLimit Int  @default(200)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
+import { PrismaService } from '../prisma/prisma.service';
 
 // ── Model ─────────────────────────────────────────────────────────────────────
 
@@ -516,10 +517,43 @@ export class AiService {
   private readonly logger = new Logger(AiService.name);
   private readonly client: Anthropic;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
     this.client = new Anthropic({
       apiKey: this.config.get<string>('ANTHROPIC_API_KEY') ?? '',
     });
+  }
+
+  // ── AI spend tracking ─────────────────────────────────────────────────────
+
+  /**
+   * Calculate cost from a Claude call and increment the tenant's monthly
+   * AI spend counter.  Rates for claude-sonnet-4-6 (euro cents per MTok):
+   *   input:      300 c/MTok  ($3.00)
+   *   output:   1 500 c/MTok  ($15.00)
+   *   cache read:  30 c/MTok  ($0.30)
+   */
+  private async trackSpend(tenantId: string, usage: ParseUsage): Promise<void> {
+    if (!tenantId) return;
+
+    const inputCost  = (usage.inputTokens          / 1_000_000) * 300;
+    const outputCost = (usage.outputTokens         / 1_000_000) * 1_500;
+    const cacheCost  = (usage.cacheReadInputTokens / 1_000_000) * 30;
+    const totalCents = Math.round(inputCost + outputCost + cacheCost);
+
+    if (totalCents <= 0) return;
+
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data:  { monthlyAiSpendCents: { increment: totalCents } },
+    }).catch((err: unknown) => {
+      // Non-fatal — never let spend tracking break an AI response
+      this.logger.warn(`trackSpend failed for tenant ${tenantId}: ${String(err)}`);
+    });
+
+    this.logger.debug(`AI spend +${totalCents}¢ for tenant ${tenantId}`);
   }
 
   /**
@@ -532,7 +566,7 @@ export class AiService {
    *     'Invoice Nokia for 40 hours consulting at 120 EUR 21% VAT'
    *   );
    */
-  async parseNaturalLanguageInvoice(text: string): Promise<ParseInvoiceResult> {
+  async parseNaturalLanguageInvoice(text: string, tenantId = ''): Promise<ParseInvoiceResult> {
     this.logger.debug(`Parsing invoice text (${text.length} chars)`);
 
     // Use the beta prompt-caching API so the system block can carry
@@ -599,17 +633,16 @@ export class AiService {
       this.logger.debug(`Prompt cache MISS — created cache entry (${cacheCreate} tokens)`);
     }
 
-    return {
-      parsed,
-      missingRequiredFields,
-      notes,
-      usage: {
-        inputTokens:              u.input_tokens,
-        outputTokens:             u.output_tokens,
-        cacheReadInputTokens:     cacheRead,
-        cacheCreationInputTokens: cacheCreate,
-      },
+    const usage: ParseUsage = {
+      inputTokens:              u.input_tokens,
+      outputTokens:             u.output_tokens,
+      cacheReadInputTokens:     cacheRead,
+      cacheCreationInputTokens: cacheCreate,
     };
+
+    void this.trackSpend(tenantId, usage);
+
+    return { parsed, missingRequiredFields, notes, usage };
   }
 
   // ── reviewInvoice ─────────────────────────────────────────────────────────
@@ -621,7 +654,7 @@ export class AiService {
    * Prompt caching is applied to the long system prompt so repeated review
    * calls (common in CI or pre-send validation flows) are cheap.
    */
-  async reviewInvoice(invoice: ReviewableInvoice): Promise<InvoiceReviewResult> {
+  async reviewInvoice(invoice: ReviewableInvoice, tenantId = ''): Promise<InvoiceReviewResult> {
     this.logger.debug(`Reviewing invoice ${invoice.number}`);
 
     // ── Build readable invoice summary for the user message ─────────────────
@@ -724,15 +757,16 @@ NOTES:
       `issues=${result.issues.length}, cache=${cacheRead > 0 ? 'HIT' : 'MISS'}`,
     );
 
-    return {
-      ...result,
-      usage: {
-        inputTokens:              u.input_tokens,
-        outputTokens:             u.output_tokens,
-        cacheReadInputTokens:     cacheRead,
-        cacheCreationInputTokens: cacheCreate,
-      },
+    const usage: ParseUsage = {
+      inputTokens:              u.input_tokens,
+      outputTokens:             u.output_tokens,
+      cacheReadInputTokens:     cacheRead,
+      cacheCreationInputTokens: cacheCreate,
     };
+
+    void this.trackSpend(tenantId, usage);
+
+    return { ...result, usage };
   }
 
   // ── generateDunningMessage ────────────────────────────────────────────────
@@ -747,6 +781,7 @@ NOTES:
     invoice: DunnableInvoice,
     language: string,
     channel: 'email' | 'whatsapp',
+    tenantId = '',
   ): Promise<DunningResult> {
     const toIso      = (d: Date) => new Date(d).toISOString().slice(0, 10);
     const daysOverdue = Math.max(
@@ -831,14 +866,15 @@ SELLER (sender):
       `${daysOverdue}d overdue, cache=${cacheRead > 0 ? 'HIT' : 'MISS'}`,
     );
 
-    return {
-      ...result,
-      usage: {
-        inputTokens:              u.input_tokens,
-        outputTokens:             u.output_tokens,
-        cacheReadInputTokens:     cacheRead,
-        cacheCreationInputTokens: cacheCreate,
-      },
+    const usage: ParseUsage = {
+      inputTokens:              u.input_tokens,
+      outputTokens:             u.output_tokens,
+      cacheReadInputTokens:     cacheRead,
+      cacheCreationInputTokens: cacheCreate,
     };
+
+    void this.trackSpend(tenantId, usage);
+
+    return { ...result, usage };
   }
 }

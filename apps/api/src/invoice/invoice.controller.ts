@@ -24,6 +24,7 @@ import { AiService } from '../ai/ai.service';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles, Role } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
+import { PlanLimitGuard } from '../auth/plan-limit.guard';
 import type { JwtPayload } from '../auth/jwt-payload.interface';
 import { CreateInvoiceBodyDto } from './dto/create-invoice.dto';
 import { DunningMessageDto } from './dto/dunning-message.dto';
@@ -134,6 +135,7 @@ export class InvoiceController {
    */
   @Post(':idOrNumber/review')
   @Roles(Role.ADMIN, Role.ACCOUNTANT)
+  @UseGuards(PlanLimitGuard)
   async reviewInvoice(
     @Param('idOrNumber') idOrNumber: string,
     @CurrentUser() user: JwtPayload,
@@ -186,7 +188,7 @@ export class InvoiceController {
       paymentTermsNote: inv.paymentTermsNote,
     };
 
-    return this.ai.reviewInvoice(reviewable);
+    return this.ai.reviewInvoice(reviewable, tenantId);
   }
 
   // ── POST /api/v1/invoices/:idOrNumber/dunning-message ────────────────────
@@ -201,6 +203,7 @@ export class InvoiceController {
    */
   @Post(':idOrNumber/dunning-message')
   @Roles(Role.ADMIN, Role.ACCOUNTANT)
+  @UseGuards(PlanLimitGuard)
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   async generateDunningMessage(
     @Param('idOrNumber') idOrNumber: string,
@@ -230,7 +233,7 @@ export class InvoiceController {
       },
     };
 
-    return this.ai.generateDunningMessage(dunnableInvoice, dto.language, dto.channel);
+    return this.ai.generateDunningMessage(dunnableInvoice, dto.language, dto.channel, tenantId);
   }
 
   // ── POST /api/v1/invoices/:idOrNumber/send ───────────────────────────────
