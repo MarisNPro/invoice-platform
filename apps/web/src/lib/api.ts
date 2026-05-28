@@ -15,6 +15,15 @@ export async function apiGet<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export async function apiGetBlob(path: string): Promise<Blob> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { ...devHeaders() },
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`GET ${path} → ${res.status}`);
+  return res.blob();
+}
+
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
@@ -66,6 +75,53 @@ export interface CreatedInvoice {
   status: string;
   total: number;
   currencyCode: string;
+}
+
+// ── Import pipeline ───────────────────────────────────────────────────────────
+
+export interface ImportLine {
+  itemName: string;
+  quantity: number;
+  unitPrice: number;
+  vatRatePercent: number;
+  unitCode: string;
+}
+
+export interface ImportConfidence {
+  overall:  number;
+  customer: number;
+  amounts:  number;
+  dates:    number;
+  vatRate:  number;
+}
+
+export interface ImportExtractedData {
+  customerName?:      string;
+  customerVatNumber?: string;
+  currency:           string;
+  issueDate:          string;
+  dueDate:            string;
+  lines:              ImportLine[];
+  note?:              string;
+  confidence:         ImportConfidence;
+}
+
+export interface ImportRecord {
+  id:            string;
+  fileName:      string;
+  status:        string;
+  createdAt:     string;
+  extractedData: ImportExtractedData | null;
+  needsReview:   boolean;
+}
+
+export interface ConfirmResult {
+  importId:      string;
+  invoiceId:     string;
+  invoiceNumber: string;
+  status:        string;
+  total:         number;
+  currency:      string;
 }
 
 // ── AI parse response ─────────────────────────────────────────────────────────

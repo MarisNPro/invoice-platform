@@ -1,23 +1,75 @@
-import { IsDateString, IsOptional, IsString, IsUUID } from 'class-validator';
+import {
+  IsArray,
+  IsDateString,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class ConfirmLineDto {
+  @IsString()
+  @IsNotEmpty()
+  itemName!: string;
+
+  @IsNumber()
+  @Min(0)
+  quantity!: number;
+
+  @IsNumber()
+  @Min(0)
+  unitPrice!: number;
+
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  vatRatePercent!: number;
+
+  @IsString()
+  @IsNotEmpty()
+  unitCode!: string;
+}
 
 export class ConfirmDto {
-  /** Override the resolved customerId (UUID of existing Contact) */
+  /** Override with a known Contact UUID — skips name lookup */
   @IsOptional()
   @IsUUID()
   customerId?: string;
 
-  /** Override the extracted currency (ISO 4217) */
+  /** Customer name — used to find/create a contact when customerId is absent */
+  @IsOptional()
+  @IsString()
+  customerName?: string;
+
+  @IsOptional()
+  @IsString()
+  customerVatNumber?: string;
+
   @IsOptional()
   @IsString()
   currency?: string;
 
-  /** Override issue date (YYYY-MM-DD) */
   @IsOptional()
   @IsDateString()
   issueDate?: string;
 
-  /** Override due date (YYYY-MM-DD) */
   @IsOptional()
   @IsDateString()
   dueDate?: string;
+
+  /** Corrected line items from the review form; falls back to extractedData if absent */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ConfirmLineDto)
+  lines?: ConfirmLineDto[];
+
+  @IsOptional()
+  @IsString()
+  note?: string;
 }

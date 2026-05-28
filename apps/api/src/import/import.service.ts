@@ -16,7 +16,7 @@ import { AiService } from '../ai/ai.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { InvoiceService } from '../invoice/invoice.service';
 import { CreateInvoiceBodyDto, CreateInvoiceLineBodyDto } from '../invoice/dto/create-invoice.dto';
-import type { ConfirmDto } from './dto/confirm.dto';
+import type { ConfirmDto, ConfirmLineDto } from './dto/confirm.dto';
 
 const NEEDS_REVIEW_THRESHOLD = {
   overall:  0.85,
@@ -153,6 +153,72 @@ export class ImportService {
     };
   }
 
+  // ── Get one ────────────────────────────────────────────────────────────────
+
+  async getOne(tenantId: string, importId: string) {
+    const archive = await this.prisma.importArchive.findUnique({ where: { id: importId } });
+    if (!archive || archive.tenantId !== tenantId) {
+      throw new NotFoundException(`Import ${importId} not found`);
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const extracted = archive.extractedData as Record<string, any> | null;
+    const conf = extracted?.['confidence'] as Record<string, number> | undefined;
+
+    const needsReview = conf ? (
+      (conf['overall']  ?? 1) < 0.85 ||
+      (conf['customer'] ?? 1) < 0.70 ||
+      (conf['amounts']  ?? 1) < 0.80 ||
+      (conf['dates']    ?? 1) < 0.75 ||
+      (conf['vatRate']  ?? 1) < 0.75
+    ) : false;
+
+    return {
+      id:            archive.id,
+      fileName:      archive.fileName,
+      status:        archive.status,
+      createdAt:     archive.createdAt,
+      extractedData: extracted,
+      needsReview,
+    };
+  }
+
+  // ── Get PDF ────────────────────────────────────────────────────────────────
+
+  async getPdfBuffer(tenantId: string, importId: string): Promise<{ buffer: Buffer; fileName: string }> {
+    const archive = await this.prisma.importArchive.findUnique({ where: { id: importId } });
+    if (!archive || archive.tenantId !== tenantId) {
+      throw new NotFoundException(`Import ${importId} not found`);
+    }
+
+    const { Body } = await this.s3.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: archive.s3Key }),
+    );
+
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of Body as AsyncIterable<Uint8Array>) {
+      chunks.push(chunk);
+    }
+    return { buffer: Buffer.concat(chunks), fileName: archive.fileName };
+  }
+
+  // ── Reject ────────────────────────────────────────────────────────────────
+
+  async reject(tenantId: string, importId: string) {
+    const archive = await this.prisma.importArchive.findUnique({ where: { id: importId } });
+    if (!archive || archive.tenantId !== tenantId) {
+      throw new NotFoundException(`Import ${importId} not found`);
+    }
+
+    await this.prisma.importArchive.update({
+      where: { id: importId },
+      data:  { status: 'FAILED', completedAt: new Date() },
+    });
+
+    this.logger.log(`Import ${importId} rejected by tenant ${tenantId}`);
+    return { importId, status: 'FAILED' };
+  }
+
   // ── Confirm ────────────────────────────────────────────────────────────────
 
   async confirm(tenantId: string, importId: string, overrides: ConfirmDto = {}) {
@@ -170,10 +236,12 @@ export class ImportService {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const parsed = archive.extractedData as Record<string, any>;
 
-    // ── Resolve customer contact ───────────────────────────────────────────
+    // ── Resolve customer contact ─────────────────────────────────────────
     let customerId = overrides.customerId;
     if (!customerId) {
-      const name: string = parsed['customerName'] ?? '';
+      // Prefer name from the review form override, fall back to extracted
+      const name: string = overrides.customerName ?? parsed['customerName'] ?? '';
+      const vatNumber: string | null = overrides.customerVatNumber ?? parsed['customerVatNumber'] ?? null;
       if (name) {
         const existing = await this.prisma.contact.findFirst({
           where: { tenantId, name: { contains: name, mode: 'insensitive' }, isCustomer: true },
@@ -188,7 +256,7 @@ export class ImportService {
               name,
               country:    'EU',
               isCustomer: true,
-              vatNumber:  parsed['customerVatNumber'] ?? null,
+              vatNumber,
             },
           });
           customerId = created.id;
@@ -200,22 +268,29 @@ export class ImportService {
       throw new BadRequestException('customerId required — no customer name in extracted data');
     }
 
-    // ── Build invoice DTO ─────────────────────────────────────────────────
+    // ── Build invoice DTO ──────────────────────────────────────────────────
     const dto = new CreateInvoiceBodyDto();
     dto.customerId = customerId;
     dto.currency   = (overrides.currency ?? parsed['currency'] ?? 'EUR') as string;
     dto.issueDate  = (overrides.issueDate ?? parsed['issueDate']) as string;
     dto.dueDate    = (overrides.dueDate   ?? parsed['dueDate'])   as string;
-    dto.note       = parsed['note'] as string | undefined;
+    dto.note       = (overrides.note      ?? parsed['note']       ?? undefined) as string | undefined;
 
+    // Use corrected lines from review form if provided, otherwise fall back to extraction
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    dto.lines = ((parsed['lines'] as any[]) ?? []).map((l): CreateInvoiceLineBodyDto => {
+    const rawLines: Record<string, any>[] =
+      overrides.lines?.length
+        ? (overrides.lines as unknown as Record<string, unknown>[])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        : ((parsed['lines'] as Record<string, any>[]) ?? []);
+
+    dto.lines = rawLines.map((l): CreateInvoiceLineBodyDto => {
       const line = new CreateInvoiceLineBodyDto();
-      line.itemName      = l.itemName      as string;
-      line.quantity      = l.quantity      as number;
-      line.unitPrice     = l.unitPrice     as number;
-      line.vatRatePercent = l.vatRatePercent as number;
-      line.unitCode      = l.unitCode      as string;
+      line.itemName       = l.itemName       as string;
+      line.quantity       = Number(l.quantity);
+      line.unitPrice      = Number(l.unitPrice);
+      line.vatRatePercent = Number(l.vatRatePercent);
+      line.unitCode       = l.unitCode       as string;
       return line;
     });
 

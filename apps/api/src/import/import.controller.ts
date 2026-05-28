@@ -2,11 +2,14 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Get,
   Param,
   Post,
   Req,
+  Res,
+  StreamableFile,
 } from '@nestjs/common';
-import type { FastifyRequest } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt-payload.interface';
 import { ImportService } from './import.service';
@@ -41,6 +44,45 @@ export class ImportController {
     const tenantId = user.tenant_id ?? '';
 
     return this.importService.upload(tenantId, buffer, file.filename as string, 'application/pdf');
+  }
+
+  /**
+   * GET /api/v1/imports/:id
+   * Returns the import archive record with extractedData and needsReview flag.
+   */
+  @Get(':id')
+  getOne(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.importService.getOne(user.tenant_id ?? '', id);
+  }
+
+  /**
+   * GET /api/v1/imports/:id/pdf
+   * Streams the uploaded PDF from MinIO so the browser can display it.
+   */
+  @Get(':id/pdf')
+  async getPdf(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const { buffer, fileName } = await this.importService.getPdfBuffer(user.tenant_id ?? '', id);
+    reply.header('Content-Disposition', `inline; filename="${fileName}"`);
+    return new StreamableFile(buffer, { type: 'application/pdf' });
+  }
+
+  /**
+   * POST /api/v1/imports/:id/reject
+   * Marks the import as FAILED so it is excluded from further processing.
+   */
+  @Post(':id/reject')
+  reject(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.importService.reject(user.tenant_id ?? '', id);
   }
 
   /**
