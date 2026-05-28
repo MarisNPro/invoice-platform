@@ -18,6 +18,7 @@ import {
 import type { FastifyReply } from 'fastify';
 import { InvoiceService } from './invoice.service';
 import { InvoicePdfService } from './invoice-pdf.service';
+import { InvoiceUblService } from './invoice-ubl.service';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles, Role } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
@@ -31,6 +32,7 @@ export class InvoiceController {
   constructor(
     private readonly invoices: InvoiceService,
     private readonly pdf:      InvoicePdfService,
+    private readonly ubl:      InvoiceUblService,
   ) {}
 
   // ── POST /api/v1/invoices ─────────────────────────────────────────────────
@@ -89,6 +91,31 @@ export class InvoiceController {
       .header('Content-Disposition', `attachment; filename="${filename}"`)
       .header('Content-Length', String(buffer.length))
       .send(buffer);
+  }
+
+  // ── GET /api/v1/invoices/:idOrNumber/ubl ─────────────────────────────────
+  /**
+   * Download invoice as Peppol BIS Billing 3.0 UBL 2.1 XML.
+   * :idOrNumber can be either a UUID or an invoice number (e.g. INV-2024-00002).
+   * Returns application/xml with Content-Disposition: attachment.
+   */
+  @Get(':idOrNumber/ubl')
+  async getUbl(
+    @Param('idOrNumber') idOrNumber: string,
+    @CurrentUser() user: JwtPayload,
+    @Res() res: FastifyReply,
+  ) {
+    const { xml, filename } = await this.ubl.generate(
+      user.tenant_id ?? '',
+      idOrNumber,
+    );
+
+    const bytes = Buffer.from(xml, 'utf8');
+    void res
+      .header('Content-Type', 'application/xml; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .header('Content-Length', String(bytes.length))
+      .send(bytes);
   }
 
   // ── GET /api/v1/invoices/:id ──────────────────────────────────────────────

@@ -42,9 +42,18 @@ export interface UblInvoiceInput {
   seller: UblParty;
   buyer: UblParty;
   lines: UblLine[];
+  /** BT-110 Total VAT amount */
   taxAmount: number;
+  /** BT-106 / BT-109 Sum of line net amounts (before VAT) */
   taxableAmount: number;
+  /** BT-112 Total amount with VAT */
   payableAmount: number;
+  /** BT-107 Sum of document-level allowances (default 0) */
+  allowancesTotalAmount?: number;
+  /** BT-108 Sum of document-level charges (default 0) */
+  chargeTotalAmount?: number;
+  /** BT-113 Prepaid / already-paid amount (default 0) */
+  prepaidAmount?: number;
 }
 
 const PEPPOL_CUSTOMIZATION =
@@ -101,12 +110,32 @@ export class UblInvoiceBuilder {
         .ele('cac:TaxScheme').ele('cbc:ID').txt('VAT');
     }
 
-    // Monetary totals
+    // BG-22 Monetary totals — all 6 EN 16931 monetary BT fields
+    const allowances  = input.allowancesTotalAmount ?? 0;
+    const charges     = input.chargeTotalAmount    ?? 0;
+    const prepaid     = input.prepaidAmount        ?? 0;
+    // BT-109 = BT-106 − BT-107 + BT-108  (no doc-level allowances/charges → same as taxableAmount)
+    const taxExclusive = input.taxableAmount - allowances + charges;
+    // BT-115 = BT-112 − BT-113 (amount still to be paid after any prepayment)
+    const payable      = input.payableAmount - prepaid;
+
     const lma = root.ele('cac:LegalMonetaryTotal');
-    lma.ele('cbc:LineExtensionAmount', { currencyID: input.currencyCode }).txt(f2(input.taxableAmount));
-    lma.ele('cbc:TaxExclusiveAmount', { currencyID: input.currencyCode }).txt(f2(input.taxableAmount));
-    lma.ele('cbc:TaxInclusiveAmount', { currencyID: input.currencyCode }).txt(f2(input.payableAmount));
-    lma.ele('cbc:PayableAmount', { currencyID: input.currencyCode }).txt(f2(input.payableAmount));
+    // BT-106 Sum of line net amounts
+    lma.ele('cbc:LineExtensionAmount',    { currencyID: input.currencyCode }).txt(f2(input.taxableAmount));
+    // BT-107 Sum of document-level allowances (omit when zero — keep XML lean)
+    if (allowances > 0)
+      lma.ele('cbc:AllowancesTotalAmount', { currencyID: input.currencyCode }).txt(f2(allowances));
+    // BT-108 Sum of document-level charges (omit when zero)
+    if (charges > 0)
+      lma.ele('cbc:ChargeTotalAmount',    { currencyID: input.currencyCode }).txt(f2(charges));
+    // BT-109 Invoice total without VAT
+    lma.ele('cbc:TaxExclusiveAmount',     { currencyID: input.currencyCode }).txt(f2(taxExclusive));
+    // BT-112 Invoice total with VAT
+    lma.ele('cbc:TaxInclusiveAmount',     { currencyID: input.currencyCode }).txt(f2(input.payableAmount));
+    // BT-113 Amount already paid (always emit so validators see explicit 0.00)
+    lma.ele('cbc:PrepaidAmount',          { currencyID: input.currencyCode }).txt(f2(prepaid));
+    // BT-115 Amount due for payment
+    lma.ele('cbc:PayableAmount',          { currencyID: input.currencyCode }).txt(f2(payable));
 
     // Invoice lines
     for (const line of input.lines) {
