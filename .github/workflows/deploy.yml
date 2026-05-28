@@ -12,7 +12,7 @@ concurrency:
 
 env:
   # Shared across jobs
-  NODE_VERSION: "20"
+  NODE_VERSION: "22"
   PNPM_VERSION: "9.4.0"
 
 # ── Job 1: Lint + Typecheck ─────────────────────────────────────────────────────
