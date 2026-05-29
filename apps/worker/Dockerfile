@@ -43,14 +43,14 @@ COPY apps/doc-engine/package.json   ./apps/doc-engine/
 COPY apps/mcp-server/package.json   ./apps/mcp-server/
 
 COPY tsconfig.base.json ./
-COPY packages/shared-types  ./packages/shared-types
-COPY packages/vat-engine    ./packages/vat-engine
-COPY apps/worker            ./apps/worker
+COPY apps/api/prisma    ./apps/api/prisma
+COPY apps/worker        ./apps/worker
 
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
-RUN pnpm --filter @invoice/shared-types run build
-RUN pnpm --filter @invoice/vat-engine   run build
+# Generate Prisma client types — worker uses the same DB schema as the API
+RUN node_modules/.bin/prisma generate --schema=apps/api/prisma/schema.prisma
+
 RUN pnpm --filter @invoice/worker run build
 
 # ── Stage 4: runner ───────────────────────────────────────────────────────────
