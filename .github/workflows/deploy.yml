@@ -11,6 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # Shared across jobs
   NODE_VERSION: "22"
   PNPM_VERSION: "9.4.0"
@@ -137,16 +138,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: amondnet/vercel-action@v25
-        with:
-          vercel-token:      ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id:     ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          # Root of the Next.js app relative to repo root
-          working-directory: ./apps/web
-          vercel-args: '--prod'
-          alias-domains: |
-            app.yourdomain.com
+      - name: Deploy to Vercel
+        env:
+          VERCEL_TOKEN:      ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID:     ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        working-directory: ./apps/web
+        run: |
+          if [ -n "$VERCEL_TOKEN" ]; then
+            npm install -g vercel
+            vercel --prod --token "$VERCEL_TOKEN" --yes
+          else
+            echo "VERCEL_TOKEN not set, skipping deploy"
+          fi
 
 # ── Job 4: Deploy API + Worker → Coolify ────────────────────────────────────────
   deploy-api:
@@ -157,15 +161,22 @@ jobs:
     continue-on-error: true
 
     steps:
-      - name: Trigger Coolify deployment (API)
+      - name: Deploy to Coolify
+        env:
+          COOLIFY_WEBHOOK_URL:   ${{ secrets.COOLIFY_WEBHOOK_URL }}
+          COOLIFY_WEBHOOK_TOKEN: ${{ secrets.COOLIFY_WEBHOOK_TOKEN }}
         run: |
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            -X POST "${{ secrets.COOLIFY_WEBHOOK_URL }}" \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_WEBHOOK_TOKEN }}" \
-            -H "Content-Type: application/json")
+          if [ -n "$COOLIFY_WEBHOOK_URL" ]; then
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              -X POST "$COOLIFY_WEBHOOK_URL" \
+              -H "Authorization: Bearer $COOLIFY_WEBHOOK_TOKEN" \
+              -H "Content-Type: application/json")
 
-          if [ "$HTTP_STATUS" -ne 200 ] && [ "$HTTP_STATUS" -ne 201 ]; then
-            echo "Coolify API webhook returned HTTP $HTTP_STATUS"
-            exit 1
+            if [ "$HTTP_STATUS" -ne 200 ] && [ "$HTTP_STATUS" -ne 201 ]; then
+              echo "Coolify webhook returned HTTP $HTTP_STATUS"
+              exit 1
+            fi
+            echo "✓ Coolify deployment triggered (HTTP $HTTP_STATUS)"
+          else
+            echo "COOLIFY_WEBHOOK_URL not set, skipping deploy"
           fi
-          echo "✓ Coolify deployment triggered (HTTP $HTTP_STATUS)"
