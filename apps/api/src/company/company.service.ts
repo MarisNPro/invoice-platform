@@ -41,19 +41,20 @@ export class CompanyService {
     country?: CountryCode,
     limit     = 10,
   ): Promise<CompanyResult[]> {
-    if (!query || query.trim().length < 2) return [];
+    const q = query.trim();
+    if (!q || q.length < 2) return [];
 
     switch (country) {
-      case 'FI': return this.searchFinland(query, limit);
-      case 'EE': return this.searchEstonia(query, limit);
-      case 'LV': return this.searchElasticsearch(INDEX_LV, 'LV', query, limit);
-      case 'LT': return this.searchElasticsearch(INDEX_LT, 'LT', query, limit);
+      case 'FI': return this.searchFinland(q, limit);
+      case 'EE': return this.searchEstonia(q, limit);
+      case 'LV': return this.searchElasticsearch(INDEX_LV, 'LV', q, limit);
+      case 'LT': return this.searchElasticsearch(INDEX_LT, 'LT', q, limit);
       default: {
         const [fi, ee, lv, lt] = await Promise.allSettled([
-          this.searchFinland(query, limit),
-          this.searchEstonia(query, limit),
-          this.searchElasticsearch(INDEX_LV, 'LV', query, limit),
-          this.searchElasticsearch(INDEX_LT, 'LT', query, limit),
+          this.searchFinland(q, limit),
+          this.searchEstonia(q, limit),
+          this.searchElasticsearch(INDEX_LV, 'LV', q, limit),
+          this.searchElasticsearch(INDEX_LT, 'LT', q, limit),
         ]);
         return [
           ...(fi.status === 'fulfilled' ? fi.value : []),
@@ -68,7 +69,7 @@ export class CompanyService {
   // ── Finland — PRH YTJ v3 ──────────────────────────────────────────────────
 
   private async searchFinland(query: string, limit: number): Promise<CompanyResult[]> {
-    const cacheKey = `companies:FI:${query.toLowerCase()}`;
+    const cacheKey = `companies:FI:${query.toLowerCase().trim()}`;
     const cached = await this.redis.get(cacheKey);
     if (cached) return JSON.parse(cached) as CompanyResult[];
 
@@ -116,7 +117,7 @@ export class CompanyService {
   // ── Estonia — Äriregister autocomplete ───────────────────────────────────
 
   private async searchEstonia(query: string, limit: number): Promise<CompanyResult[]> {
-    const cacheKey = `companies:EE:${query.toLowerCase()}`;
+    const cacheKey = `companies:EE:${query.toLowerCase().trim()}`;
     const cached = await this.redis.get(cacheKey);
     if (cached) return JSON.parse(cached) as CompanyResult[];
 
@@ -157,7 +158,7 @@ export class CompanyService {
     query:   string,
     limit:   number,
   ): Promise<CompanyResult[]> {
-    const cacheKey = `companies:${country}:${query.toLowerCase()}`;
+    const cacheKey = `companies:${country}:${query.toLowerCase().trim()}`;
     const cached = await this.redis.get(cacheKey);
     if (cached) return JSON.parse(cached) as CompanyResult[];
 
