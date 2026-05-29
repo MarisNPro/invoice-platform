@@ -1,6 +1,6 @@
 # Invoice Platform — Master Plan
 **Last updated:** May 2026  
-**Status:** Phase 1 — Week 6 started (~90% of Phase 1 complete)  
+**Status:** Phase 1 — Week 7 started (~95% of Phase 1 complete)  
 **Stack:** Turborepo · NestJS · Next.js 14 · PostgreSQL (Supabase) · Elasticsearch · Keycloak · Vercel · Hetzner/Coolify
 
 ---
@@ -28,7 +28,7 @@ A Claude-native EU e-invoicing platform targeting Latvian, Estonian, Lithuanian,
 | VAT engine | EN 16931 BG-22 + BG-23, all EU rates seeded |
 | PDF/A-3 | All mandatory BT fields, downloadable |
 | UBL 2.1 XML | Peppol BIS 3.0 valid, all 9 validation checks passing |
-| Tests | 105 unit tests, CI green, Node 22 |
+| Tests | 111 unit tests, CI green, Node 22 |
 | GitHub | github.com/MarisNPro/invoice-platform |
 | Deployment config | Supabase + Vercel + Hetzner/Coolify files ready |
 
@@ -111,11 +111,20 @@ A Claude-native EU e-invoicing platform targeting Latvian, Estonian, Lithuanian,
 ### WEEK 6 — Cloud archive + Customer management
 *Priority: Retention feature. Users expect their invoices saved automatically.*
 
+> 🟢 **WEEK 6 QUALITY GATE — PASSED 9/11 — 2026-05-29**
+> - 111 tests passing (up from 105)
+> - Customer management UI done
+> - Invoice filters with shareable URLs done
+> - Cloud archive OAuth + sync done
+> - WARN: Fastify CVE same as W5, tracked W8
+> - WARN: PRH search warm 2.0s — network variance, not actionable
+
 | # | Task | Type | Effort |
 |---|---|---|---|
-| 20 | Cloud archive onboarding — GDrive + Dropbox + OneDrive OAuth | Core | 2 days |
-| 21 | CloudArchiveSyncJob — auto-save PDF + XML after sending | Core | 1 day |
-| 22 | Customer management UI — list, create, edit | UI | 1 day |
+| 20 | ✅ Cloud archive onboarding — GDrive + Dropbox + OneDrive OAuth | Core | 2 days |
+| 21 | ✅ CloudArchiveSyncJob — auto-save PDF + XML after sending | Core | 1 day |
+| 22 | ✅ Customer management UI — list + detail + invoice history | UI | 1 day |
+| 23 | ✅ Invoice list with shareable URL filters (status/customer/date/amount) | UI | Half day |
 
 ### WEEK 7 — Financial completeness
 *Priority: Required for any real invoicing workflow.*
