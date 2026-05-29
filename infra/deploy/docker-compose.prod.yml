@@ -83,6 +83,8 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      DIRECT_URL: ${DIRECT_URL}
       REDIS_URL: ${REDIS_URL}
       ELASTICSEARCH_URL: http://elasticsearch:9200
       ELASTICSEARCH_INDEX_COMPANIES: companies
@@ -100,36 +102,13 @@ services:
         max-size: "50m"
         max-file: "5"
 
-  # ── Doc Engine ──────────────────────────────────────────────────────────────
-  doc-engine:
-    image: ${DOC_ENGINE_IMAGE:-ghcr.io/your-org/invoice-doc-engine:latest}
-    restart: unless-stopped
-    ports:
-      - "4010:4010"
-    environment:
-      NODE_ENV: production
-      PORT: "4010"
-      S3_ENDPOINT: ${S3_ENDPOINT}
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
-      S3_SECRET_KEY: ${S3_SECRET_KEY}
-      S3_BUCKET: ${S3_BUCKET}
-      S3_REGION: ${S3_REGION:-eu-central-1}
-      S3_FORCE_PATH_STYLE: "true"
-    networks:
-      - invoice-net
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "20m"
-        max-file: "3"
-
   # ── Elasticsearch 8 (single-node, no TLS for internal net) ──────────────────
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
     restart: unless-stopped
     environment:
       discovery.type: single-node
-      xpack.security.enabled: "false"
+      xpack.security.enabled: "false" # TODO: enable before Phase 2 multi-service
       xpack.security.http.ssl.enabled: "false"
       ES_JAVA_OPTS: "-Xms512m -Xmx512m"
       cluster.name: invoice-prod
