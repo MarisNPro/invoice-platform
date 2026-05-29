@@ -8,7 +8,6 @@
 # ── Stage 1: base ─────────────────────────────────────────────────────────────
 FROM node:20-alpine AS base
 RUN apk add --no-cache libc6-compat
-# Enable corepack so pnpm is pinned to exactly the workspace version
 RUN corepack enable && corepack prepare pnpm@9.4.0 --activate
 ENV PNPM_HOME="/usr/local/share/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
@@ -17,19 +16,36 @@ ENV PATH="$PNPM_HOME:$PATH"
 FROM base AS deps
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
-COPY apps/api/package.json ./apps/api/
+# Root manifests + .npmrc (contains shamefully-hoist and peer-dep settings)
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
+
+# pnpm requires ALL workspace member package.json files to resolve the graph —
+# pnpm-workspace.yaml declares "apps/*" so every app must be present here.
+COPY apps/api/package.json          ./apps/api/
+COPY apps/worker/package.json       ./apps/worker/
+COPY apps/web/package.json          ./apps/web/
+COPY apps/doc-engine/package.json   ./apps/doc-engine/
+COPY apps/mcp-server/package.json   ./apps/mcp-server/
 COPY packages/ ./packages/
+
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
 # ── Stage 3: builder ──────────────────────────────────────────────────────────
 FROM base AS builder
 WORKDIR /app
 
-# Bring in installed node_modules from deps stage
-COPY --from=deps /app/node_modules       ./node_modules
+# node_modules from deps (includes pnpm virtual store)
+COPY --from=deps /app/node_modules ./node_modules
 
-# Copy full source (only what's needed for the API + its workspace deps)
+# Root manifests needed so the workspace-symlink reinstall below can resolve
+COPY .npmrc package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/api/package.json          ./apps/api/
+COPY apps/worker/package.json       ./apps/worker/
+COPY apps/web/package.json          ./apps/web/
+COPY apps/doc-engine/package.json   ./apps/doc-engine/
+COPY apps/mcp-server/package.json   ./apps/mcp-server/
+
+# Full source for the API and its workspace package dependencies
 COPY tsconfig.base.json ./
 COPY packages/shared-types  ./packages/shared-types
 COPY packages/vat-engine    ./packages/vat-engine
@@ -38,14 +54,14 @@ COPY packages/en16931       ./packages/en16931
 COPY packages/i18n          ./packages/i18n
 COPY apps/api               ./apps/api
 
-# Reinstall to create workspace symlinks inside the build tree
+# Reinstall to wire workspace symlinks into the build tree
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
-# Generate Prisma client (no DB needed, generates TypeScript types only)
+# Generate Prisma client (no DB needed — generates TypeScript types only)
 RUN pnpm --filter @invoice/api exec \
     prisma generate --schema=./prisma/schema.prisma
 
-# Build workspace packages in dependency order (API imports from these)
+# Build workspace packages in dependency order
 RUN pnpm --filter @invoice/shared-types run build
 RUN pnpm --filter @invoice/vat-engine   run build
 RUN pnpm --filter @invoice/ubl-builder  run build
@@ -67,27 +83,21 @@ ENV NODE_ENV=production
 ENV PORT=4000
 WORKDIR /app
 
-# ── node_modules ──────────────────────────────────────────────────────────────
-# Copy full node_modules from deps (includes pnpm virtual store + workspace symlinks)
 COPY --from=deps    --chown=nestjs:nodejs /app/node_modules ./node_modules
 
-# ── workspace packages ────────────────────────────────────────────────────────
-# The API's dist/ requires these at runtime via node_modules symlinks.
-# Each package's main now points to ./dist/index.js (set in package.json).
-COPY --from=builder --chown=nestjs:nodejs /app/packages/shared-types/dist    ./packages/shared-types/dist
+COPY --from=builder --chown=nestjs:nodejs /app/packages/shared-types/dist       ./packages/shared-types/dist
 COPY --from=builder --chown=nestjs:nodejs /app/packages/shared-types/package.json ./packages/shared-types/package.json
-COPY --from=builder --chown=nestjs:nodejs /app/packages/vat-engine/dist      ./packages/vat-engine/dist
+COPY --from=builder --chown=nestjs:nodejs /app/packages/vat-engine/dist         ./packages/vat-engine/dist
 COPY --from=builder --chown=nestjs:nodejs /app/packages/vat-engine/package.json   ./packages/vat-engine/package.json
-COPY --from=builder --chown=nestjs:nodejs /app/packages/ubl-builder/dist     ./packages/ubl-builder/dist
+COPY --from=builder --chown=nestjs:nodejs /app/packages/ubl-builder/dist        ./packages/ubl-builder/dist
 COPY --from=builder --chown=nestjs:nodejs /app/packages/ubl-builder/package.json  ./packages/ubl-builder/package.json
-COPY --from=builder --chown=nestjs:nodejs /app/packages/en16931/dist         ./packages/en16931/dist
+COPY --from=builder --chown=nestjs:nodejs /app/packages/en16931/dist            ./packages/en16931/dist
 COPY --from=builder --chown=nestjs:nodejs /app/packages/en16931/package.json      ./packages/en16931/package.json
-COPY --from=builder --chown=nestjs:nodejs /app/packages/i18n/dist            ./packages/i18n/dist
+COPY --from=builder --chown=nestjs:nodejs /app/packages/i18n/dist               ./packages/i18n/dist
 COPY --from=builder --chown=nestjs:nodejs /app/packages/i18n/package.json         ./packages/i18n/package.json
 
-# ── application ───────────────────────────────────────────────────────────────
-COPY --from=builder --chown=nestjs:nodejs /app/apps/api/dist     ./apps/api/dist
-COPY --from=builder --chown=nestjs:nodejs /app/apps/api/prisma   ./apps/api/prisma
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/dist        ./apps/api/dist
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/prisma      ./apps/api/prisma
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/package.json ./apps/api/package.json
 
 USER nestjs
@@ -97,9 +107,7 @@ EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -qO- http://localhost:4000/api/v1/health || exit 1
 
-# dumb-init reaps orphan processes; migrate deploy is idempotent
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["sh", "-c", \
-  "node -e \"require('@prisma/client')\" && \
-   npx prisma migrate deploy --schema=./prisma/schema.prisma && \
+  "npx prisma migrate deploy --schema=./prisma/schema.prisma && \
    node dist/main.js"]
