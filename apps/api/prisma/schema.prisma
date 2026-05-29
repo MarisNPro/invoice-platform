@@ -63,6 +63,12 @@ enum Plan {
   PROFESSIONAL
 }
 
+enum CloudProvider {
+  GOOGLE_DRIVE
+  DROPBOX
+  ONEDRIVE
+}
+
 enum TransmissionChannel {
   EMAIL
   WHATSAPP
@@ -119,6 +125,7 @@ model Tenant {
   importArchives  ImportArchive[]
   auditLogs       AuditLog[]
   apiKeys         ApiKey[]
+  cloudArchives   CloudArchive[]
 
   @@map("tenants")
 }
@@ -465,6 +472,31 @@ model ApiKey {
   @@index([keyHash])
   @@index([tenantId, isActive])
   @@map("api_keys")
+}
+
+// ── Cloud archive integration ─────────────────────────────────────────────────
+
+model CloudArchive {
+  id             String        @id @default(uuid()) @db.Uuid
+  tenantId       String        @db.Uuid
+  provider       CloudProvider
+  /// AES-256-CBC encrypted; format: iv_hex:ciphertext_hex
+  accessToken    String        @db.Text
+  /// AES-256-CBC encrypted; format: iv_hex:ciphertext_hex
+  refreshToken   String        @db.Text
+  tokenExpiresAt DateTime?
+  folderPath     String        @default("/InvoiceArchive")
+  folderId       String?
+  isActive       Boolean       @default(true)
+  lastSyncAt     DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, provider])
+  @@index([tenantId, isActive])
+  @@map("cloud_archives")
 }
 
 // ── Import archive ────────────────────────────────────────────────────────────

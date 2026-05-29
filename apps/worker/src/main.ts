@@ -16,8 +16,10 @@ import {
   QUEUE_INVOICE_EMAIL,
   QUEUE_MONTHLY_RESET,
   QUEUE_DUNNING_SCHEDULER,
+  QUEUE_CLOUD_ARCHIVE_SYNC,
   JobName,
 } from './jobs/job.constants';
+import { archiveSyncProcessor }           from './jobs/archive-sync.job';
 import type { SendInvoiceEmailJobData } from './jobs/job.constants';
 
 const logger = new Logger('Worker');
@@ -118,12 +120,26 @@ async function main() {
   dunningWorker.on('error', (err) =>
     logger.error(`dunning worker error: ${err.message}`));
 
+  // ── Cloud archive sync queue ──────────────────────────────────────────────
+  const archiveQueue  = new Queue(QUEUE_CLOUD_ARCHIVE_SYNC, { connection });
+  const archiveWorker = new Worker(
+    QUEUE_CLOUD_ARCHIVE_SYNC,
+    archiveSyncProcessor,
+    { connection, concurrency: 2, removeOnComplete: { count: 200 }, removeOnFail: { count: 100 } },
+  );
+
+  archiveWorker.on('completed', (job) => logger.log(`✓ ${job.name} (${job.id}) archive synced`));
+  archiveWorker.on('failed',    (job, err) => logger.error(`✗ ${job?.name} (${job?.id}) archive failed: ${err.message}`));
+  archiveWorker.on('error',     (err) => logger.error(`archive worker error: ${err.message}`));
+
   // ── Graceful shutdown ─────────────────────────────────────────────────────
   const shutdown = async (signal: string) => {
     logger.log(`${signal} received, shutting down…`);
     await Promise.all([
-      syncWorker.close(), emailWorker.close(), resetWorker.close(),   dunningWorker.close(),
-      syncQueue.close(),  emailQueue.close(),  resetQueue.close(),    dunningQueue.close(),
+      syncWorker.close(),    emailWorker.close(),   resetWorker.close(),
+      dunningWorker.close(), archiveWorker.close(),
+      syncQueue.close(),     emailQueue.close(),    resetQueue.close(),
+      dunningQueue.close(),  archiveQueue.close(),
     ]);
     process.exit(0);
   };

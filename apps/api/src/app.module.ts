@@ -16,6 +16,7 @@ import { AiModule } from './ai/ai.module';
 import { OrganisationModule } from './organisation/organisation.module';
 import { AdminModule } from './admin/admin.module';
 import { ImportModule } from './import/import.module';
+import { ArchiveModule } from './archive/archive.module';
 import { FastifyThrottlerGuard } from './common/fastify-throttler.guard';
 
 @Module({
@@ -56,6 +57,7 @@ import { FastifyThrottlerGuard } from './common/fastify-throttler.guard';
     OrganisationModule,
     AdminModule,
     ImportModule,
+    ArchiveModule,
   ],
   controllers: [HealthController],
   providers: [

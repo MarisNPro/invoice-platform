@@ -1,9 +1,25 @@
 import type { Job, Processor } from 'bullmq';
+import { Queue } from 'bullmq';
 import nodemailer from 'nodemailer';
 import { Logger } from '../logger';
 import { EmailService } from '../email/email.service';
 import { prisma } from '../prisma';
+import { QUEUE_CLOUD_ARCHIVE_SYNC, JobName } from './job.constants';
 import type { SendInvoiceEmailJobData } from './job.constants';
+
+// Module-level archive sync queue — created once, reused across jobs
+function parseRedisUrl(url: string) {
+  const u = new URL(url);
+  return {
+    host: u.hostname,
+    port: Number(u.port) || 6379,
+    ...(u.password ? { password: decodeURIComponent(u.password) } : {}),
+    ...(u.pathname && u.pathname !== '/' ? { db: Number(u.pathname.slice(1)) } : {}),
+  };
+}
+const archiveSyncQueue = new Queue(QUEUE_CLOUD_ARCHIVE_SYNC, {
+  connection: parseRedisUrl(process.env['REDIS_URL'] ?? 'redis://localhost:6379'),
+});
 
 const logger      = new Logger('SendInvoiceEmailJob');
 const emailSvc    = new EmailService();
@@ -28,6 +44,11 @@ export const sendInvoiceEmailProcessor: Processor<SendInvoiceEmailJobData> = asy
   });
 
   await job.updateProgress(100);
+
+  // Enqueue archive sync — fires after invoice is marked SENT
+  await archiveSyncQueue.add(JobName.ARCHIVE_SYNC, { invoiceId, tenantId }).catch(
+    (err: unknown) => logger.warn(`Archive sync enqueue failed (non-fatal): ${String(err)}`),
+  );
 
   logger.log(`[${job.name}#${job.id}] done — messageId=${messageId}`);
   return { messageId };
