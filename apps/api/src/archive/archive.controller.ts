@@ -60,7 +60,7 @@ export class ArchiveController {
   ) {
     const provider = toProvider(providerRaw);
     const url      = this.archive.getAuthUrl(provider, user.tenant_id ?? '');
-    void reply.redirect(302, url);
+    void reply.redirect(url, 302);
   }
 
   /**
@@ -79,10 +79,10 @@ export class ArchiveController {
 
     try {
       await this.archive.handleCallback(provider, code, state);
-      void reply.redirect(302, `${frontendUrl}/settings/archive?connected=true&provider=${provider}`);
+      void reply.redirect(`${frontendUrl}/settings/archive?connected=true&provider=${provider}`, 302);
     } catch (err) {
       const msg = encodeURIComponent((err as Error).message);
-      void reply.redirect(302, `${frontendUrl}/settings/archive?error=${msg}`);
+      void reply.redirect(`${frontendUrl}/settings/archive?error=${msg}`, 302);
     }
   }
 

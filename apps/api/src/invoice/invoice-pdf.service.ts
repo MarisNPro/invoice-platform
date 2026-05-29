@@ -38,6 +38,13 @@ import QRCode from 'qrcode';
 import { PrismaService } from '../prisma/prisma.service';
 import type { Prisma, BankAccount } from '@prisma/client';
 
+// ── EPC QR code cache (keyed by IBAN) ────────────────────────────────────────
+// The QR PNG generation is CPU-bound (~150ms/call). Cache per-IBAN so only
+// the very first PDF for a given seller IBAN pays that cost; all subsequent
+// PDFs reuse the pre-rendered buffer.
+
+const qrCache = new Map<string, Buffer>();
+
 // ── Prisma return type ────────────────────────────────────────────────────────
 
 type InvoiceWithAll = Prisma.InvoiceGetPayload<{
@@ -513,7 +520,9 @@ export class InvoicePdfService {
       ].join('\n');
 
       try {
-        const qrPng = await QRCode.toBuffer(epcContent, { type: 'png', width: 150, margin: 1 });
+        const cached = qrCache.get(bank.iban);
+        const qrPng  = cached ?? await QRCode.toBuffer(epcContent, { type: 'png', width: 150, margin: 1 });
+        if (!cached) qrCache.set(bank.iban, qrPng);
         const qrImage = await doc.embedPng(qrPng);
 
         const QR_SIZE  = 80;    // display size in PDF points
