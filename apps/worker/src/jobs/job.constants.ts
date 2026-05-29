@@ -1,16 +1,18 @@
-export const QUEUE_COMPANY_SYNC       = 'company-sync';
-export const QUEUE_INVOICE_EMAIL      = 'invoice-email';
-export const QUEUE_MONTHLY_RESET      = 'monthly-reset';
-export const QUEUE_DUNNING_SCHEDULER  = 'dunning-scheduler';
-export const QUEUE_CLOUD_ARCHIVE_SYNC = 'cloud-archive-sync';
+export const QUEUE_COMPANY_SYNC           = 'company-sync';
+export const QUEUE_INVOICE_EMAIL          = 'invoice-email';
+export const QUEUE_MONTHLY_RESET          = 'monthly-reset';
+export const QUEUE_DUNNING_SCHEDULER      = 'dunning-scheduler';
+export const QUEUE_CLOUD_ARCHIVE_SYNC     = 'cloud-archive-sync';
+export const QUEUE_RECURRING_INVOICE      = 'recurring-invoice';
 
 export const JobName = {
-  SYNC_LV:           'sync-companies-lv',
-  SYNC_LT:           'sync-companies-lt',
-  SEND_INVOICE:      'send-invoice-email',
-  RESET_MONTHLY:     'reset-monthly-counters',
-  DUNNING_SCHEDULER: 'dunning-scheduler',
-  ARCHIVE_SYNC:      'archive-invoice',
+  SYNC_LV:              'sync-companies-lv',
+  SYNC_LT:              'sync-companies-lt',
+  SEND_INVOICE:         'send-invoice-email',
+  RESET_MONTHLY:        'reset-monthly-counters',
+  DUNNING_SCHEDULER:    'dunning-scheduler',
+  ARCHIVE_SYNC:         'archive-invoice',
+  RECURRING_INVOICE:    'recurring-invoice-scheduler',
 } as const;
 
 export type JobName = (typeof JobName)[keyof typeof JobName];

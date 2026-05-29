@@ -116,18 +116,19 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users           User[]
-  invoices        Invoice[]
-  contacts        Contact[]
-  products        Product[]
-  taxRates        TaxRate[]
-  invoiceCounters InvoiceCounter[]
-  bankAccounts    BankAccount[]
-  importArchives  ImportArchive[]
-  auditLogs       AuditLog[]
-  apiKeys         ApiKey[]
-  cloudArchives   CloudArchive[]
-  payments        Payment[]
+  users              User[]
+  invoices           Invoice[]
+  contacts           Contact[]
+  products           Product[]
+  taxRates           TaxRate[]
+  invoiceCounters    InvoiceCounter[]
+  bankAccounts       BankAccount[]
+  importArchives     ImportArchive[]
+  auditLogs          AuditLog[]
+  apiKeys            ApiKey[]
+  cloudArchives      CloudArchive[]
+  payments           Payment[]
+  recurringInvoices  RecurringInvoice[]
 
   @@map("tenants")
 }
@@ -176,11 +177,12 @@ model Contact {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tenant         Tenant    @relation(fields: [tenantId], references: [id])
-  addresses      Address[]
-  buyerInvoices  Invoice[] @relation("BuyerContact")
-  sellerInvoices Invoice[] @relation("SellerContact")
-  apiKeys        ApiKey[]
+  tenant             Tenant             @relation(fields: [tenantId], references: [id])
+  addresses          Address[]
+  buyerInvoices      Invoice[]          @relation("BuyerContact")
+  sellerInvoices     Invoice[]          @relation("SellerContact")
+  apiKeys            ApiKey[]
+  recurringInvoices  RecurringInvoice[]
 
   @@index([tenantId, country])
   @@index([tenantId, vatNumber])
@@ -534,4 +536,29 @@ model ImportArchive {
 
   @@index([tenantId, status])
   @@map("import_archives")
+}
+
+// ── Recurring invoices ────────────────────────────────────────────────────────
+
+model RecurringInvoice {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @db.Uuid
+  customerId    String    @db.Uuid
+  templateLines Json
+  currency      String    @default("EUR") @db.Char(3)
+  language      String    @default("en") @db.VarChar(5)
+  description   String?
+  intervalDays  Int
+  nextRunAt     DateTime
+  lastRunAt     DateTime?
+  isActive      Boolean   @default(true)
+  autoSend      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant   Tenant  @relation(fields: [tenantId],  references: [id])
+  customer Contact @relation(fields: [customerId], references: [id])
+
+  @@index([tenantId, isActive])
+  @@map("recurring_invoices")
 }

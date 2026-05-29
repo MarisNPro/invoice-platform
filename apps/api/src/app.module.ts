@@ -17,6 +17,7 @@ import { OrganisationModule } from './organisation/organisation.module';
 import { AdminModule } from './admin/admin.module';
 import { ImportModule } from './import/import.module';
 import { ArchiveModule } from './archive/archive.module';
+import { RecurringInvoiceModule } from './recurring-invoice/recurring-invoice.module';
 import { FastifyThrottlerGuard } from './common/fastify-throttler.guard';
 
 @Module({
@@ -58,6 +59,7 @@ import { FastifyThrottlerGuard } from './common/fastify-throttler.guard';
     AdminModule,
     ImportModule,
     ArchiveModule,
+    RecurringInvoiceModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -11,12 +11,14 @@ import {
 } from './jobs/send-invoice-email.job';
 import { resetMonthlyCountersProcessor } from './jobs/reset-monthly-counters.job';
 import { dunningSchedulerProcessor }     from './jobs/dunning-scheduler.job';
+import { recurringInvoiceProcessor }     from './jobs/recurring-invoice.job';
 import {
   QUEUE_COMPANY_SYNC,
   QUEUE_INVOICE_EMAIL,
   QUEUE_MONTHLY_RESET,
   QUEUE_DUNNING_SCHEDULER,
   QUEUE_CLOUD_ARCHIVE_SYNC,
+  QUEUE_RECURRING_INVOICE,
   JobName,
 } from './jobs/job.constants';
 import { archiveSyncProcessor }           from './jobs/archive-sync.job';
@@ -132,14 +134,31 @@ async function main() {
   archiveWorker.on('failed',    (job, err) => logger.error(`✗ ${job?.name} (${job?.id}) archive failed: ${err.message}`));
   archiveWorker.on('error',     (err) => logger.error(`archive worker error: ${err.message}`));
 
+  // ── Recurring invoice scheduler (daily 07:00 UTC) ─────────────────────────
+  const recurringQueue = new Queue(QUEUE_RECURRING_INVOICE, { connection });
+  await registerRecurringJob(recurringQueue);
+
+  const recurringWorker = new Worker(
+    QUEUE_RECURRING_INVOICE,
+    recurringInvoiceProcessor,
+    { connection, concurrency: 1, removeOnComplete: { count: 30 }, removeOnFail: { count: 30 } },
+  );
+
+  recurringWorker.on('completed', (job) =>
+    logger.log(`✓ ${job.name} (${job.id}) recurring invoices run done`));
+  recurringWorker.on('failed', (job, err) =>
+    logger.error(`✗ ${job?.name} recurring failed: ${err.message}`));
+  recurringWorker.on('error', (err) =>
+    logger.error(`recurring worker error: ${err.message}`));
+
   // ── Graceful shutdown ─────────────────────────────────────────────────────
   const shutdown = async (signal: string) => {
     logger.log(`${signal} received, shutting down…`);
     await Promise.all([
-      syncWorker.close(),    emailWorker.close(),   resetWorker.close(),
-      dunningWorker.close(), archiveWorker.close(),
-      syncQueue.close(),     emailQueue.close(),    resetQueue.close(),
-      dunningQueue.close(),  archiveQueue.close(),
+      syncWorker.close(),       emailWorker.close(),    resetWorker.close(),
+      dunningWorker.close(),    archiveWorker.close(),  recurringWorker.close(),
+      syncQueue.close(),        emailQueue.close(),     resetQueue.close(),
+      dunningQueue.close(),     archiveQueue.close(),   recurringQueue.close(),
     ]);
     process.exit(0);
   };
@@ -197,6 +216,18 @@ async function registerRepeatableJobs(queue: Queue) {
     );
     logger.log(`registered repeatable job: ${JobName.SYNC_LT}`);
   }
+}
+
+async function registerRecurringJob(queue: Queue) {
+  const existing = await queue.getRepeatableJobs();
+  if (existing.some((j) => j.name === JobName.RECURRING_INVOICE)) return;
+
+  await queue.add(
+    JobName.RECURRING_INVOICE,
+    {},
+    { repeat: { pattern: '0 7 * * *' } },  // daily 07:00 UTC
+  );
+  logger.log(`registered repeatable job: ${JobName.RECURRING_INVOICE}`);
 }
 
 main().catch((err: unknown) => {
