@@ -63,17 +63,15 @@ RUN addgroup --system --gid 1001 nodejs \
 ENV NODE_ENV=production
 WORKDIR /app
 
-COPY --from=deps    --chown=worker:nodejs /app/node_modules ./node_modules
+# With shamefully-hoist=false, @prisma/client and the generated client live in
+# the pnpm virtual store (node_modules/.pnpm), and the worker resolves its deps
+# via symlinks in apps/worker/node_modules → that store. Copy both trees FROM
+# THE BUILDER (where `prisma generate` ran) so the symlinks resolve and the
+# generated client is present. Copying from deps would ship an ungenerated stub.
+COPY --from=builder --chown=worker:nodejs /app/node_modules             ./node_modules
+COPY --from=builder --chown=worker:nodejs /app/apps/worker/node_modules ./apps/worker/node_modules
 
-# Prisma client is generated in the builder stage (deps installs with --ignore-scripts),
-# so pull the generated artifacts from builder, not deps.
-COPY --from=builder --chown=worker:nodejs /app/node_modules/.prisma  ./node_modules/.prisma
-COPY --from=builder --chown=worker:nodejs /app/node_modules/@prisma  ./node_modules/@prisma
-
-# NB: the worker imports no @invoice/* workspace packages (see apps/worker/src
-# and apps/worker/package.json), so none are copied here. It only needs its own
-# compiled dist plus the Prisma client copied above.
-COPY --from=builder --chown=worker:nodejs /app/apps/worker/dist        ./apps/worker/dist
+COPY --from=builder --chown=worker:nodejs /app/apps/worker/dist         ./apps/worker/dist
 COPY --from=builder --chown=worker:nodejs /app/apps/worker/package.json ./apps/worker/package.json
 
 USER worker
