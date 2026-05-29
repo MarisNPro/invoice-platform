@@ -15,7 +15,7 @@ name: invoice-platform-prod
 services:
   # ── NestJS API ──────────────────────────────────────────────────────────────
   api:
-    image: ${API_IMAGE:-ghcr.io/your-org/invoice-api:latest}
+    image: ${API_IMAGE:-ghcr.io/marisnpro/invoice-platform/invoice-api:latest}
     restart: unless-stopped
     ports:
       - "4000:4000"
@@ -79,7 +79,7 @@ services:
 
   # ── BullMQ Worker ───────────────────────────────────────────────────────────
   worker:
-    image: ${WORKER_IMAGE:-ghcr.io/your-org/invoice-worker:latest}
+    image: ${WORKER_IMAGE:-ghcr.io/marisnpro/invoice-platform/invoice-worker:latest}
     restart: unless-stopped
     environment:
       NODE_ENV: production
