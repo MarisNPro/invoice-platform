@@ -92,23 +92,13 @@ A Claude-native EU e-invoicing platform targeting Latvian, Estonian, Lithuanian,
 ### WEEK 5 — Import pipeline + Cowork automation
 *Priority: Unique feature. No Baltic competitor has invoice OCR + AI extraction.*
 
-> 🟢 **WEEK 5 QUALITY GATE — PASSED 9/11 — 2026-05-29**
-> 
-> | # | Check | Result |
-> |---|---|---|
-> | 1 | No secrets in git history | ✅ PASS |
-> | 2 | console.log in prod code | ✅ PASS — 0 in API; 19 total all in seed.ts + mcp-server bootstrap |
-> | 3 | findMany/findFirst tenant isolation | ✅ PASS — admin service intentional; all others scoped |
-> | 4 | TypeScript typecheck (api + web) | ✅ PASS — 0 errors |
-> | 5 | ESLint (api + web) | ✅ PASS — 0 errors/warnings |
-> | 6 | pnpm audit high | ⚠️ WARN — @fastify/middie GHSA-72c6-fx6q-fr5w; auth handled by NestJS guards (not fastify middleware), actual exposure low; fix requires fastify v5 — tracked for Week 8 infra sprint |
-> | 7 | Tests ≥ 100 | ✅ PASS — 105 / 105 (5 suites); 9 new import pipeline tests added |
-> | 8 | Search cold (<5s) | ✅ PASS — 3.9s (live PRH API call, network-dependent; warm cache 0.3s) |
-> | 9 | Search warm (<500ms) | ✅ PASS — 288ms |
-> | 10 | PDF download (<2s) | ✅ PASS — 1.034s |
-> | 11 | UBL XML valid | ✅ PASS — valid UBL 2.1, correct Invoice-2 root namespace |
-> 
-> Feature flags (Task B): not built — was not part of Week 5 scope.
+> 🟢 **WEEK 5 QUALITY GATE — PASSED 9/11 — 2026-05-28**
+> - 105 tests passing (up from 96)
+> - 0 TypeScript errors, 0 lint warnings
+> - No secrets in git history
+> - Fastify CVE WARN — same as W4, tracked for W8
+> - Feature flags moved to W7 (plan correct)
+> - Search warm 288ms, PDF 1.034s, UBL valid
 
 | # | Task | Type | Effort |
 |---|---|---|---|
