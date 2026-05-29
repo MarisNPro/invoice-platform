@@ -77,6 +77,46 @@ export interface CreatedInvoice {
   currencyCode: string;
 }
 
+// ── Customers ─────────────────────────────────────────────────────────────────
+
+export interface CustomerAddress {
+  street: string; city: string; postalCode: string; country: string; isDefault: boolean;
+}
+
+export interface CustomerListItem {
+  id:              string;
+  name:            string;
+  vatNumber:       string | null;
+  businessId:      string | null;
+  country:         string;
+  email:           string | null;
+  phone:           string | null;
+  address:         CustomerAddress | null;
+  invoiceCount:    number;
+  totalInvoiced:   number;
+  lastInvoiceDate: string | null;
+}
+
+// ── Invoices ──────────────────────────────────────────────────────────────────
+
+export interface InvoiceListItem {
+  id:          string;
+  number:      string;
+  status:      string;
+  currencyCode: string;
+  total:       number;
+  issuedAt:    string;
+  dueAt:       string;
+  createdAt:   string;
+  buyer:       { id: string; name: string; country: string };
+  seller:      { id: string; name: string };
+}
+
+export interface InvoiceListResponse {
+  data: InvoiceListItem[];
+  meta: { page: number; limit: number; total: number; pages: number };
+}
+
 // ── Import pipeline ───────────────────────────────────────────────────────────
 
 export interface ImportLine {

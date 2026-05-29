@@ -69,12 +69,20 @@ export class InvoiceController {
   @Get()
   findAll(
     @CurrentUser() user: JwtPayload,
-    @Query('status')  status?: string,
-    @Query('buyerId') buyerId?: string,
+    @Query('status')    status?:    string,
+    @Query('buyerId')   buyerId?:   string,
+    @Query('from')      from?:      string,
+    @Query('to')        to?:        string,
+    @Query('minAmount') minAmountStr?: string,
+    @Query('maxAmount') maxAmountStr?: string,
     @Query('page',  new DefaultValuePipe(1),  ParseIntPipe) page  = 1,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
   ) {
-    return this.invoices.findAll(user.tenant_id ?? '', status, page, limit, buyerId);
+    const minAmount = minAmountStr !== undefined ? Number(minAmountStr) : undefined;
+    const maxAmount = maxAmountStr !== undefined ? Number(maxAmountStr) : undefined;
+    return this.invoices.findAll(
+      user.tenant_id ?? '', status, page, limit, buyerId, from, to, minAmount, maxAmount,
+    );
   }
 
   // ── GET /api/v1/invoices/:idOrNumber/pdf ─────────────────────────────────

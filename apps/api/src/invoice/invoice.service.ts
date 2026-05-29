@@ -345,17 +345,33 @@ export class InvoiceService {
   // ── List & single fetch ──────────────────────────────────────────────────────
 
   async findAll(
-    tenantId: string,
-    status?:  string,
-    page    = 1,
-    limit   = 20,
-    buyerId?: string,
+    tenantId:   string,
+    status?:    string,
+    page      = 1,
+    limit     = 20,
+    buyerId?:   string,
+    from?:      string,
+    to?:        string,
+    minAmount?: number,
+    maxAmount?: number,
   ) {
     const skip  = (page - 1) * limit;
     const where = {
       tenantId,
-      ...(status  ? { status:  status  as Prisma.EnumInvoiceStatusFilter } : {}),
+      ...(status  ? { status:  status as Prisma.EnumInvoiceStatusFilter } : {}),
       ...(buyerId ? { buyerId } : {}),
+      ...(from || to ? {
+        issuedAt: {
+          ...(from ? { gte: new Date(from) } : {}),
+          ...(to   ? { lte: new Date(to)   } : {}),
+        },
+      } : {}),
+      ...((minAmount !== undefined) || (maxAmount !== undefined) ? {
+        total: {
+          ...(minAmount !== undefined ? { gte: minAmount } : {}),
+          ...(maxAmount !== undefined ? { lte: maxAmount } : {}),
+        },
+      } : {}),
     };
 
     const [items, total] = await this.prisma.$transaction([
