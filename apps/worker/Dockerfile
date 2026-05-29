@@ -65,6 +65,11 @@ WORKDIR /app
 
 COPY --from=deps    --chown=worker:nodejs /app/node_modules ./node_modules
 
+# Prisma client is generated in the builder stage (deps installs with --ignore-scripts),
+# so pull the generated artifacts from builder, not deps.
+COPY --from=builder --chown=worker:nodejs /app/node_modules/.prisma  ./node_modules/.prisma
+COPY --from=builder --chown=worker:nodejs /app/node_modules/@prisma  ./node_modules/@prisma
+
 COPY --from=builder --chown=worker:nodejs /app/packages/shared-types/dist       ./packages/shared-types/dist
 COPY --from=builder --chown=worker:nodejs /app/packages/shared-types/package.json ./packages/shared-types/package.json
 COPY --from=builder --chown=worker:nodejs /app/packages/vat-engine/dist         ./packages/vat-engine/dist
