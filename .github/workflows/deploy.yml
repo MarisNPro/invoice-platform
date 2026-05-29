@@ -127,7 +127,61 @@ jobs:
       - name: Run tests
         run: pnpm turbo test
 
-# ── Job 3: Deploy web → Vercel ──────────────────────────────────────────────────
+# ── Job 3: Build and push API image → GHCR ─────────────────────────────────────
+  build-api:
+    name: Build API image
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push API
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: ghcr.io/marisnpro/invoice-platform/invoice-api:latest
+
+# ── Job 4: Build and push Worker image → GHCR ──────────────────────────────────
+  build-worker:
+    name: Build Worker image
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Worker
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/worker/Dockerfile
+          push: true
+          tags: ghcr.io/marisnpro/invoice-platform/invoice-worker:latest
+
+# ── Job 5: Deploy web → Vercel ──────────────────────────────────────────────────
   deploy-web:
     name: Deploy Web → Vercel
     runs-on: ubuntu-latest
@@ -152,11 +206,11 @@ jobs:
             echo "VERCEL_TOKEN not set, skipping deploy"
           fi
 
-# ── Job 4: Deploy API + Worker → Coolify ────────────────────────────────────────
+# ── Job 6: Deploy API + Worker → Coolify ────────────────────────────────────────
   deploy-api:
     name: Deploy API → Coolify
     runs-on: ubuntu-latest
-    needs: [check, test]
+    needs: [build-api, build-worker]
     if: github.ref == 'refs/heads/main'
     continue-on-error: true
 
