@@ -60,6 +60,11 @@ services:
       # AI (optional — for invoice AI features)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
+      # Security secrets (REQUIRED — app refuses insecure defaults in prod)
+      APP_BASE_URL: ${APP_BASE_URL}
+      IMPERSONATION_SECRET: ${IMPERSONATION_SECRET}
+      ARCHIVE_ENCRYPTION_KEY: ${ARCHIVE_ENCRYPTION_KEY}
+
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -88,6 +93,8 @@ services:
       REDIS_URL: ${REDIS_URL}
       ELASTICSEARCH_URL: http://elasticsearch:9200
       ELASTICSEARCH_INDEX_COMPANIES: companies
+      # Must match the api's key — worker decrypts the same cloud-archive tokens
+      ARCHIVE_ENCRYPTION_KEY: ${ARCHIVE_ENCRYPTION_KEY}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
       LV_UR_CSV_URL: ${LV_UR_CSV_URL:-https://ur.gov.lv/en/open-data/companies.csv}
       LT_RC_CSV_URL: ${LT_RC_CSV_URL:-https://www.registrucentras.lt/jar/p/doc/jar_iregistruoti_statiniai.csv}
