@@ -66,7 +66,7 @@ importers:
         specifier: ^10.3.10
         version: 10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/platform-fastify':
-        specifier: ^10.3.10
+        specifier: ^10.4.22
         version: 10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))
       '@nestjs/terminus':
         specifier: ^10.2.3
@@ -93,7 +93,7 @@ importers:
         specifier: ^5.5.6
         version: 5.6.0
       fastify:
-        specifier: ^4.28.1
+        specifier: ^4.29.1
         version: 4.29.1
       ioredis:
         specifier: ^5.4.1
