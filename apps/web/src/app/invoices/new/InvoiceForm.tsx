@@ -103,7 +103,6 @@ export function InvoiceForm() {
     control,
     handleSubmit,
     setValue,
-    reset,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(invoiceSchema),

@@ -2,23 +2,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type { Plan } from '@prisma/client';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
-import type { JwtPayload } from '../auth/jwt-payload.interface';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
-const devUser: JwtPayload = {
-  sub:                'dev-user-00000000-0000-0000-0000-000000000001',
-  email:              'superadmin@invoiceplatform.local',
-  name:               'Super Admin',
-  preferred_username: 'superadmin',
-  tenant_id:          '00000000-0000-0000-0000-000000000001',
-  iat:                0,
-  exp:                9_999_999_999,
-  aud:                'invoice-platform-api',
-  iss:                'http://localhost:8080/realms/invoice-platform',
-  realm_access:       { roles: ['superadmin', 'invoice-admin'] },
-  resource_access:    {},
-};
 
 const orgFixture = {
   id:                  '11111111-1111-1111-1111-111111111111',

@@ -122,7 +122,9 @@ function safe(val: unknown): string {
     '…': '...',
   };
   return s
+    // eslint-disable-next-line no-control-regex
     .replace(/[^\x00-\xFF]/g, (c) => MAP[c] ?? '?')
+    // eslint-disable-next-line no-control-regex
     .replace(/[^\x09\x0A\x0D\x20-\x7E\xA0-\xFF]/g, '?');
 }
 
@@ -547,7 +549,7 @@ export class InvoicePdfService {
     rule(page, FOOTER_Y);
 
     let footerLeft  = FOOTER_Y - 14;
-    let footerRight = FOOTER_Y - 14;
+    const footerRight = FOOTER_Y - 14;
 
     // Payment terms (BT-20)
     if (inv.paymentTermsNote) {

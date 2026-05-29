@@ -5,7 +5,6 @@ import {
   Delete,
   Get,
   Ip,
-  NotFoundException,
   Param,
   ParseIntPipe,
   ParseUUIDPipe,

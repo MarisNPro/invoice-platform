@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Inject } from '@nestjs/common';
-import { SignJWT, jwtVerify } from 'jose';
+import { SignJWT } from 'jose';
 import axios from 'axios';
 import { Queue } from 'bullmq';
 import type Redis from 'ioredis';

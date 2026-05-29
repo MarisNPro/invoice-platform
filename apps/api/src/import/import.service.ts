@@ -16,7 +16,7 @@ import { AiService } from '../ai/ai.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { InvoiceService } from '../invoice/invoice.service';
 import { CreateInvoiceBodyDto, CreateInvoiceLineBodyDto } from '../invoice/dto/create-invoice.dto';
-import type { ConfirmDto, ConfirmLineDto } from './dto/confirm.dto';
+import type { ConfirmDto } from './dto/confirm.dto';
 
 const NEEDS_REVIEW_THRESHOLD = {
   overall:  0.85,
