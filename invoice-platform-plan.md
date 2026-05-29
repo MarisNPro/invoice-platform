@@ -1,6 +1,6 @@
 # Invoice Platform — Master Plan
 **Last updated:** May 2026  
-**Status:** Phase 1 — Week 5 started (~82% of Phase 1 complete)  
+**Status:** Phase 1 — Week 6 started (~90% of Phase 1 complete)  
 **Stack:** Turborepo · NestJS · Next.js 14 · PostgreSQL (Supabase) · Elasticsearch · Keycloak · Vercel · Hetzner/Coolify
 
 ---
@@ -28,7 +28,7 @@ A Claude-native EU e-invoicing platform targeting Latvian, Estonian, Lithuanian,
 | VAT engine | EN 16931 BG-22 + BG-23, all EU rates seeded |
 | PDF/A-3 | All mandatory BT fields, downloadable |
 | UBL 2.1 XML | Peppol BIS 3.0 valid, all 9 validation checks passing |
-| Tests | 87 unit tests, CI green, Node 22 |
+| Tests | 96 unit tests, CI green, Node 22 |
 | GitHub | github.com/MarisNPro/invoice-platform |
 | Deployment config | Supabase + Vercel + Hetzner/Coolify files ready |
 
@@ -92,11 +92,17 @@ A Claude-native EU e-invoicing platform targeting Latvian, Estonian, Lithuanian,
 ### WEEK 5 — Import pipeline + Cowork automation
 *Priority: Unique feature. No Baltic competitor has invoice OCR + AI extraction.*
 
+> 🟢 **WEEK 5 QUALITY GATE — PASSED 3/3 — 2026-05-29**
+> - 3/3 checks PASS
+> - 96 unit tests, both packages typecheck clean
+> - Import pipeline: upload → extract (Claude PDF) → review UI → confirm → invoice
+> - Cowork: 5 scheduled task templates in docs/cowork-scheduled-tasks.md
+
 | # | Task | Type | Effort |
 |---|---|---|---|
-| 17 | Files API — upload once, reference by file_id | AI | 2 hours |
-| 18 | Invoice import — Textract OCR + Claude extraction + confidence review UI | AI | 3 days |
-| 19 | 5 Cowork scheduled task templates | Cowork | 2 hours |
+| 17 | ✅ Files API — upload once, reference by file_id | AI | 2 hours |
+| 18 | ✅ Invoice import — Claude PDF extraction + confidence review UI | AI | 3 days |
+| 19 | ✅ 5 Cowork scheduled task templates | Cowork | 2 hours |
 
 > **5 templates:** Nightly inbox processor (00:00), weekly overdue report (Mon 08:00), monthly VAT report (1st 06:00), monthly recurring invoices (1st 07:00), daily summary (08:00).
 
@@ -226,8 +232,8 @@ A Claude-native EU e-invoicing platform targeting Latvian, Estonian, Lithuanian,
 | Smart invoice review | W4 | Claude Sonnet 4.6 |
 | Smart dunning — 14 languages | W4 | Claude Sonnet 4.6 + prompt cache |
 | Cowork integration (5 deliverables) | W4–5 | MCP compatible |
-| Files API — PDF upload once | W5 | files.create() |
-| Invoice import OCR + extraction | W5 | Textract + Claude |
+| Files API — PDF upload once | W5 ✅ | files.create() |
+| Invoice import OCR + extraction | W5 ✅ | Claude PDF document API |
 | Plain-language analytics | M6 | Claude Sonnet 4.6 |
 | Citations — EN 16931 rules | M6 | citations: {enabled: true} |
 | Batch processing (−50% cost) | M6 | MessageBatches API |
