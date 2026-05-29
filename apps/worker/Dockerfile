@@ -16,19 +16,10 @@ ENV PATH="$PNPM_HOME:$PATH"
 FROM base AS deps
 WORKDIR /app
 
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc ./
-COPY apps/api/package.json          ./apps/api/
-COPY apps/worker/package.json       ./apps/worker/
-COPY apps/web/package.json          ./apps/web/
-COPY apps/doc-engine/package.json   ./apps/doc-engine/
-COPY packages/shared-types/package.json  ./packages/shared-types/
-COPY packages/vat-engine/package.json    ./packages/vat-engine/
-COPY packages/ubl-builder/package.json   ./packages/ubl-builder/
-COPY packages/en16931/package.json       ./packages/en16931/
-COPY packages/i18n/package.json          ./packages/i18n/
-COPY packages/ui/package.json            ./packages/ui/
-
-RUN pnpm install --frozen-lockfile
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
+COPY apps/worker/package.json ./apps/worker/
+COPY packages/ ./packages/
+RUN pnpm install --frozen-lockfile --ignore-scripts
 
 # ── Stage 3: builder ──────────────────────────────────────────────────────────
 FROM base AS builder
