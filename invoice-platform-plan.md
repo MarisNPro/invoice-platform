@@ -1,7 +1,7 @@
 # Invoice Platform — Master Plan
-**Last updated:** May 2026  
-**Status:** Phase 1 — Week 7 started (~95% of Phase 1 complete)  
-**Stack:** Turborepo · NestJS · Next.js 14 · PostgreSQL (Supabase) · Elasticsearch · Keycloak · Vercel · Hetzner/Coolify
+**Last updated:** 2026-05-29  
+**Status:** Phase 1 — Week 8 in progress — production deployment (~98% of Phase 1 complete)  
+**Stack:** Turborepo · NestJS · Next.js 14 · PostgreSQL (Supabase) · Elasticsearch · Keycloak *(deferred to backlog)* · Vercel · Hetzner/Coolify
 
 ---
 
@@ -15,22 +15,26 @@ A Claude-native EU e-invoicing platform targeting Latvian, Estonian, Lithuanian,
 
 ---
 
-## What Is Done (as of May 2026)
+## What Is Done (as of 2026-05-29)
 
 | Item | Detail |
 |---|---|
 | Monorepo | Turborepo, pnpm, 4 apps + 7 packages |
 | Docker Compose | 8 services, all healthy |
-| Database | 25 models, 3 migrations, EN 16931 compliant |
-| Auth | Keycloak JWT, RBAC, multi-company |
+| Database | 25 models, EN 16931 compliant |
+| Auth | Keycloak JWT, RBAC, multi-company *(prod Keycloak deferred — see Active Risks)* |
 | Company search | FI (PRH live) + EE (Äriregister live) + LV (219k ES) + LT (226k ES) |
 | Invoice CRUD | Atomic numbering via `next_invoice_number()` PostgreSQL function |
 | VAT engine | EN 16931 BG-22 + BG-23, all EU rates seeded |
 | PDF/A-3 | All mandatory BT fields, downloadable |
 | UBL 2.1 XML | Peppol BIS 3.0 valid, all 9 validation checks passing |
-| Tests | 111 unit tests, CI green, Node 22 |
+| Tests | **121 tests passing**, CI green, Node 22 |
 | GitHub | github.com/MarisNPro/invoice-platform |
-| Deployment config | Supabase + Vercel + Hetzner/Coolify files ready |
+| **Production DB** ✅ | Supabase EU Frankfurt — **15 migrations applied, 19 tables** |
+| **Cache / Queues** ✅ | Upstash Redis EU Frankfurt — connected |
+| **Server** ✅ | Hetzner **CPX22** (`167.233.19.5`) + **Coolify 4.1.1**, GitHub App connected |
+| **Container images** ✅ | API + Worker built & pushed to GHCR |
+| **CI/CD pipeline** ✅ | Lint ✅ · Test ✅ · Build API ✅ · Build Worker ✅ |
 
 ---
 
@@ -129,25 +133,45 @@ A Claude-native EU e-invoicing platform targeting Latvian, Estonian, Lithuanian,
 ### WEEK 7 — Financial completeness
 *Priority: Required for any real invoicing workflow.*
 
+> 🟢 **WEEK 7 QUALITY GATE — PASSED — 2026-05-29**
+> - 121 tests passing
+> - Payment amount validated against remaining balance (cannot exceed invoice total)
+
 | # | Task | Type | Effort |
 |---|---|---|---|
-| 23 | Credit notes — document type 381, link to original | Core | 1 day |
-| 24 | Payment tracking — mark paid, partial payments | Core | 1 day |
-| 25 | EPC QR codes — SEPA payment QR on every invoice | Core | Half day |
-| 26 | Recurring invoices UI — create, manage schedules | Core | 1 day |
+| 23 | ✅ Credit notes — document type 381, link to original | Core | 1 day |
+| 24 | ✅ Payment tracking — mark paid, partial payments | Core | 1 day |
+| 25 | ✅ EPC QR codes — SEPA payment QR on every invoice | Core | Half day |
+| 26 | ✅ Recurring invoices UI — create, manage schedules | Core | 1 day |
 
-### WEEK 8 — Production deployment
+### WEEK 8 — Production deployment *(in progress)*
 *Priority: Nothing matters until real users can access it.*
 
-| # | Task | Type | Effort |
+| # | Task | Type | Status |
 |---|---|---|---|
-| 27 | Supabase — project in EU Frankfurt, run migrations | Infra | 30 min |
-| 28 | Hetzner CX32 + Coolify — install, deploy API + worker | Infra | 2 hours |
-| 29 | Vercel — connect GitHub, deploy Next.js | Infra | 30 min |
-| 30 | GitHub Actions secrets — Vercel + Coolify tokens | CI/CD | 30 min |
-| 31 | Keycloak Cloud — realm import, production config | Auth | 1 hour |
-| 32 | Upstash Redis + Resend DNS — production config | Infra | 1 hour |
-| 33 | Smoke tests + first beta user invited | QA | 1 hour |
+| 27 | Supabase — project in EU Frankfurt, run migrations | Infra | ✅ Done — 15 migrations, 19 tables |
+| 28 | Hetzner CPX22 + Coolify — install, deploy API + worker | Infra | 🟡 In progress — server + Coolify 4.1.1 + GitHub App ✅, images pushed to GHCR ✅; containers not yet fully live (env vars partial) |
+| 29 | Vercel — connect GitHub, deploy Next.js | Infra | ❌ Not started — Vercel not connected |
+| 30 | GitHub Actions secrets — Vercel + Coolify tokens | CI/CD | 🟡 Partial — Coolify webhook wired; Vercel token pending |
+| 31 | Keycloak Cloud — realm import, production config | Auth | ❌ Deferred to backlog — running on `x-dev-tenant-id` / Keycloak-optional path for beta |
+| 32 | Upstash Redis + Resend DNS — production config | Infra | 🟡 Partial — Upstash Redis connected ✅; Resend DNS pending |
+| 33 | Smoke tests + first beta user invited | QA | ❌ Pending |
+
+> **Env var status (Coolify):** ⚠️ partially filled. **`ANTHROPIC_API_KEY` not yet set** ❌ (AI features disabled until set). Security secrets `IMPERSONATION_SECRET` / `ARCHIVE_ENCRYPTION_KEY` wired into compose, values pending in Coolify.
+
+---
+
+## Active Risks (as of 2026-05-29)
+
+| Risk | Severity | Status / Mitigation |
+|---|---|---|
+| **Keycloak deferred to backlog** | HIGH | Production auth is **not** on Keycloak yet. Beta runs on the Keycloak-optional guard (`x-dev-tenant-id`), which is gated to `NODE_ENV !== 'production'` and fails fast in prod. Real Keycloak (or equivalent) **required before GA / public signup**. |
+| **Vercel not connected** | HIGH | Frontend has **no production deployment** — beta users currently have no hosted web UI. Connect GitHub → Vercel (Week 8 #29) before inviting beta users. |
+| **`ANTHROPIC_API_KEY` not set in Coolify** | MEDIUM | All AI features (NL invoice creation, import OCR, dunning, smart review) are **disabled in prod** until the key is set. |
+| **Insecure default secrets** | CRITICAL | `IMPERSONATION_SECRET` + `ARCHIVE_ENCRYPTION_KEY` wired into compose but **values not yet set in Coolify**. App must run with strong values before launch (fail-fast enforcement pending). |
+| **Coolify env vars partially filled** | MEDIUM | Containers not fully live until the env set is complete. |
+| **Peppol specialist not hired** | HIGH | 2–3 month lead time — post job now (OpenPeppol Slack, Nordic LinkedIn). Blocks Phase 2. |
+| **Fastify CVE** | LOW | WARN tracked since W4/W5/W6 — monitor for patched release. |
 
 ---
 
@@ -274,7 +298,7 @@ A Claude-native EU e-invoicing platform targeting Latvian, Estonian, Lithuanian,
 - **Database:** Supabase Pro — EU Frankfurt — PostgreSQL 16
 - **Cache/Queues:** Upstash Redis — EU Frankfurt
 - **Frontend:** Vercel Pro — fra1 region
-- **API + Worker + ES:** Hetzner CX32 + Coolify — Falkenstein Germany
+- **API + Worker + ES:** Hetzner CPX22 (`167.233.19.5`) + Coolify 4.1.1 — Falkenstein Germany
 - **Object storage:** Hetzner Object Storage — FSN1
 - **Email:** Resend — 3,000 emails/month free
 - **Auth:** Keycloak 24 — cloud.keycloak.com (free <1k users)
@@ -356,15 +380,16 @@ A Claude-native EU e-invoicing platform targeting Latvian, Estonian, Lithuanian,
 
 ## Milestones
 
-| Milestone | Target | Description |
-|---|---|---|
-| First invoice + PDF downloaded | End W4 | End-to-end demo working |
-| Cowork integration live | End W5 | Users can issue from desktop |
-| Beta launch | End W8 | First paying customers |
-| First Peppol invoice sent | Month 6 | Via FITEK reseller |
-| All 4 Peppol access points live | Month 6 | FI + LV + LT + EE |
-| Italy SDI live | Month 8 | |
-| Phase 2 complete | Month 9 | All e-invoicing networks |
-| 19 ERP integrations | Month 13 | |
-| Mobile app | Month 15 | iOS + Android |
-| v1.0 full launch | Month 15 | |
+| Milestone | Target | Status | Description |
+|---|---|---|---|
+| First invoice + PDF downloaded | End W4 | ✅ Achieved 2026-05-28 (W4 gate) | End-to-end demo working |
+| Cowork integration live | End W5 | ✅ Achieved 2026-05-28 (W5 gate) | Users can issue from desktop |
+| Financial completeness (credit notes, payments, recurring) | End W7 | ✅ Achieved 2026-05-29 (W7 gate) | Real invoicing workflow complete |
+| Beta launch | End W8 | 🟡 In progress (production deploy) | First paying customers — blocked on Vercel + Coolify env + smoke tests |
+| First Peppol invoice sent | Month 6 | ⬜ Planned | Via FITEK reseller |
+| All 4 Peppol access points live | Month 6 | ⬜ Planned | FI + LV + LT + EE |
+| Italy SDI live | Month 8 | ⬜ Planned | |
+| Phase 2 complete | Month 9 | ⬜ Planned | All e-invoicing networks |
+| 19 ERP integrations | Month 13 | ⬜ Planned | |
+| Mobile app | Month 15 | ⬜ Planned | iOS + Android |
+| v1.0 full launch | Month 15 | ⬜ Planned | |
