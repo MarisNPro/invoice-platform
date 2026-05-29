@@ -158,7 +158,7 @@ jobs:
       - name: Trigger Coolify deployment (API)
         run: |
           HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            -X POST "${{ secrets.COOLIFY_API_WEBHOOK }}" \
+            -X POST "${{ secrets.COOLIFY_WEBHOOK_URL }}" \
             -H "Authorization: Bearer ${{ secrets.COOLIFY_WEBHOOK_TOKEN }}" \
             -H "Content-Type: application/json")
 
@@ -166,17 +166,4 @@ jobs:
             echo "Coolify API webhook returned HTTP $HTTP_STATUS"
             exit 1
           fi
-          echo "✓ Coolify API deployment triggered (HTTP $HTTP_STATUS)"
-
-      - name: Trigger Coolify deployment (Worker)
-        run: |
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            -X POST "${{ secrets.COOLIFY_WORKER_WEBHOOK }}" \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_WEBHOOK_TOKEN }}" \
-            -H "Content-Type: application/json")
-
-          if [ "$HTTP_STATUS" -ne 200 ] && [ "$HTTP_STATUS" -ne 201 ]; then
-            echo "Coolify Worker webhook returned HTTP $HTTP_STATUS"
-            exit 1
-          fi
-          echo "✓ Coolify Worker deployment triggered (HTTP $HTTP_STATUS)"
+          echo "✓ Coolify deployment triggered (HTTP $HTTP_STATUS)"
