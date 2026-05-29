@@ -49,7 +49,7 @@ COPY apps/worker        ./apps/worker
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
 # Generate Prisma client types — worker uses the same DB schema as the API
-RUN pnpm exec prisma generate --schema=apps/api/prisma/schema.prisma
+RUN pnpm --filter @invoice/worker exec prisma generate --schema=../api/prisma/schema.prisma
 
 RUN pnpm --filter @invoice/worker run build
 
