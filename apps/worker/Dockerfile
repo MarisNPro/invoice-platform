@@ -70,11 +70,9 @@ COPY --from=deps    --chown=worker:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=worker:nodejs /app/node_modules/.prisma  ./node_modules/.prisma
 COPY --from=builder --chown=worker:nodejs /app/node_modules/@prisma  ./node_modules/@prisma
 
-COPY --from=builder --chown=worker:nodejs /app/packages/shared-types/dist       ./packages/shared-types/dist
-COPY --from=builder --chown=worker:nodejs /app/packages/shared-types/package.json ./packages/shared-types/package.json
-COPY --from=builder --chown=worker:nodejs /app/packages/vat-engine/dist         ./packages/vat-engine/dist
-COPY --from=builder --chown=worker:nodejs /app/packages/vat-engine/package.json   ./packages/vat-engine/package.json
-
+# NB: the worker imports no @invoice/* workspace packages (see apps/worker/src
+# and apps/worker/package.json), so none are copied here. It only needs its own
+# compiled dist plus the Prisma client copied above.
 COPY --from=builder --chown=worker:nodejs /app/apps/worker/dist        ./apps/worker/dist
 COPY --from=builder --chown=worker:nodejs /app/apps/worker/package.json ./apps/worker/package.json
 
