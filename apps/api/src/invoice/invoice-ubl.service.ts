@@ -31,10 +31,11 @@ import type { Prisma, BankAccount } from '@prisma/client';
 
 type InvoiceWithAll = Prisma.InvoiceGetPayload<{
   include: {
-    buyer:         { include: { addresses: true } };
-    seller:        { include: { addresses: true } };
-    lines:         { include: { taxRate: true } };
-    vatBreakdowns: true;
+    buyer:           { include: { addresses: true } };
+    seller:          { include: { addresses: true } };
+    lines:           { include: { taxRate: true } };
+    vatBreakdowns:   true;
+    originalInvoice: true;
   };
 }>;
 
@@ -70,10 +71,11 @@ export class InvoiceUblService {
         ...(isUuid ? { id: idOrNumber } : { number: idOrNumber }),
       },
       include: {
-        buyer:         { include: { addresses: { orderBy: { isDefault: 'desc' } } } },
-        seller:        { include: { addresses: { orderBy: { isDefault: 'desc' } } } },
-        lines:         { include: { taxRate: true }, orderBy: { lineNumber: 'asc' } },
-        vatBreakdowns: { orderBy: { vatRatePercent: 'asc' } },
+        buyer:           { include: { addresses: { orderBy: { isDefault: 'desc' } } } },
+        seller:          { include: { addresses: { orderBy: { isDefault: 'desc' } } } },
+        lines:           { include: { taxRate: true }, orderBy: { lineNumber: 'asc' } },
+        vatBreakdowns:   { orderBy: { vatRatePercent: 'asc' } },
+        originalInvoice: true,
       },
     });
 
@@ -125,9 +127,13 @@ export class InvoiceUblService {
       issueDate:      toIsoDate(inv.issuedAt),
       dueDate:        inv.dueAt ? toIsoDate(inv.dueAt) : undefined,
       currencyCode:   inv.currencyCode,
-      note:           inv.note           ?? undefined,
-      buyerReference: inv.buyerReference ?? undefined,
-      orderReference: inv.orderReference ?? undefined,
+      note:             inv.note             ?? undefined,
+      buyerReference:   inv.buyerReference   ?? undefined,
+      orderReference:   inv.orderReference   ?? undefined,
+      // BT-25: BillingReference — original invoice number for credit notes
+      billingReference: inv.type === 'CREDIT_NOTE' && inv.originalInvoice
+        ? inv.originalInvoice.number
+        : undefined,
 
       // BG-4 Seller
       seller: {

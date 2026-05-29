@@ -30,6 +30,7 @@ enum InvoiceStatus {
   DRAFT
   SENT
   PAID
+  PARTIALLY_PAID
   OVERDUE
   CANCELLED
   VOID
@@ -126,6 +127,7 @@ model Tenant {
   auditLogs       AuditLog[]
   apiKeys         ApiKey[]
   cloudArchives   CloudArchive[]
+  payments        Payment[]
 
   @@map("tenants")
 }
@@ -286,6 +288,9 @@ model Invoice {
   taxAmount      Decimal       @default(0) @db.Decimal(18, 2)
   total          Decimal       @default(0) @db.Decimal(18, 2)
 
+  // Credit note link: original invoice stores FK to credit note (one-to-one)
+  creditNoteId   String?       @unique @db.Uuid
+
   // EN 16931 BT-20 payment terms note and document language
   paymentTermsNote String?       @db.Text
   language         String?       @default("en") @db.VarChar(5)
@@ -298,6 +303,10 @@ model Invoice {
   seller        Contact              @relation("SellerContact", fields: [sellerId], references: [id])
   buyer         Contact              @relation("BuyerContact", fields: [buyerId], references: [id])
   createdBy     User?                @relation(fields: [createdById], references: [id])
+  // Self-referential: original invoice → credit note (via creditNoteId FK)
+  creditNote      Invoice?  @relation("InvoiceCreditNote", fields: [creditNoteId], references: [id], onDelete: SetNull)
+  // Inverse: credit note → original invoice
+  originalInvoice Invoice?  @relation("InvoiceCreditNote")
   lines         InvoiceLine[]
   vatBreakdowns InvoiceVatBreakdown[]
   payments      Payment[]
@@ -360,16 +369,21 @@ model InvoiceVatBreakdown {
 // ── Payment ───────────────────────────────────────────────────────────────────
 
 model Payment {
-  id        String        @id @default(uuid()) @db.Uuid
-  invoiceId String        @db.Uuid
-  amount    Decimal       @db.Decimal(18, 2)
-  method    PaymentMethod @default(BANK_TRANSFER)
+  id        String         @id @default(uuid()) @db.Uuid
+  invoiceId String         @db.Uuid
+  tenantId  String         @db.Uuid
+  amount    Decimal        @db.Decimal(15, 2)
+  currency  String         @default("EUR") @db.Char(3)
+  method    PaymentMethod? @default(BANK_TRANSFER)
   reference String?
+  notes     String?        @db.Text
   paidAt    DateTime
-  createdAt DateTime      @default(now())
+  createdAt DateTime       @default(now())
 
   invoice Invoice @relation(fields: [invoiceId], references: [id])
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
 
+  @@index([invoiceId])
   @@map("payments")
 }
 

@@ -11,6 +11,8 @@ import { MailQueueService } from '../queue/queue.service';
 import type { CreateInvoiceDto, InvoiceNumberRow } from './invoice.types';
 import type { CreateInvoiceBodyDto } from './dto/create-invoice.dto';
 import type { SendInvoiceDto } from './dto/send-invoice.dto';
+import type { CreateCreditNoteDto } from './dto/create-credit-note.dto';
+import type { CreatePaymentDto } from './dto/create-payment.dto';
 
 // ── Rounding helper ───────────────────────────────────────────────────────────
 
@@ -422,13 +424,318 @@ export class InvoiceService {
     await this.findOne(tenantId, id);
     return this.prisma.$transaction([
       this.prisma.payment.create({
-        data: { invoiceId: id, amount, paidAt, method: 'BANK_TRANSFER' },
+        data: { invoiceId: id, tenantId, amount, currency: 'EUR', paidAt, method: 'BANK_TRANSFER' },
       }),
       this.prisma.invoice.update({
         where: { id },
         data:  { status: 'PAID' },
       }),
     ]);
+  }
+
+  // ── Credit note ──────────────────────────────────────────────────────────────
+
+  async createCreditNote(
+    tenantId:    string,
+    idOrNumber:  string,
+    dto:         CreateCreditNoteDto,
+    keycloakSub?: string,
+    ipAddress?:   string,
+  ) {
+    // Load original invoice (must belong to tenant)
+    const original = await this.findByIdOrNumber(tenantId, idOrNumber);
+
+    // Pre-load tenant tax rates for partial-credit line resolution
+    const tenantTaxRates = await this.prisma.taxRate.findMany({ where: { tenantId } });
+    const findTaxRateId = (ratePercent: number): string | null => {
+      const match = tenantTaxRates.find(
+        (tr) => Math.abs(Number(tr.rate) - ratePercent / 100) < 0.0001,
+      );
+      return match?.id ?? null;
+    };
+
+    // Resolve DB user
+    let dbUserId: string | null = null;
+    if (keycloakSub) {
+      const dbUser = await this.prisma.user.findFirst({
+        where: { keycloakId: keycloakSub },
+        select: { id: true },
+      });
+      dbUserId = dbUser?.id ?? null;
+    }
+
+    // Build credit lines (negate quantities to produce negative amounts)
+    const rawLines =
+      dto.lines && dto.lines.length > 0
+        ? dto.lines.map((l, idx) => ({
+            lineNumber:     idx + 1,
+            description:    l.itemName,
+            quantity:       -Math.abs(l.quantity),
+            unitPrice:      l.unitPrice,
+            unit:           l.unitCode,
+            vatRatePercent: l.vatRatePercent,
+            taxRateId:      findTaxRateId(l.vatRatePercent),
+          }))
+        : original.lines.map((l, idx) => {
+            const ratePercent = l.taxRate
+              ? Math.round(Number(l.taxRate.rate) * 10000) / 100
+              : 0;
+            return {
+              lineNumber:     idx + 1,
+              description:    l.description,
+              quantity:       -Math.abs(Number(l.quantity)),
+              unitPrice:      Number(l.unitPrice),
+              unit:           l.unit,
+              vatRatePercent: ratePercent,
+              taxRateId:      l.taxRateId ?? null,
+            };
+          });
+
+    const enrichedLines = rawLines.map((line) => ({
+      ...line,
+      netAmount:     round2(line.quantity * line.unitPrice),
+      lineTaxAmount: round2(round2(line.quantity * line.unitPrice) * line.vatRatePercent / 100),
+    }));
+
+    // VAT breakdown (BG-23)
+    const vatGroupMap = new Map<number, number>();
+    for (const line of enrichedLines) {
+      vatGroupMap.set(
+        line.vatRatePercent,
+        round2((vatGroupMap.get(line.vatRatePercent) ?? 0) + line.netAmount),
+      );
+    }
+    const vatBreakdowns = Array.from(vatGroupMap.entries()).map(([rate, taxable]) => ({
+      vatCategoryCode: vatCategoryCode(rate),
+      vatRatePercent:  rate,
+      taxableAmount:   taxable,
+      taxAmount:       round2(taxable * rate / 100),
+    }));
+
+    // BG-22 document totals (all negative for credit notes)
+    const lineExtensionAmount = round2(enrichedLines.reduce((s, l) => s + l.netAmount, 0));
+    const taxAmount            = round2(vatBreakdowns.reduce((s, vb) => s + vb.taxAmount, 0));
+    const taxInclusiveAmount   = round2(lineExtensionAmount + taxAmount);
+
+    const year   = new Date().getFullYear();
+    const prefix = 'CN';
+
+    const creditNote = await this.prisma.withTransaction(async (tx) => {
+      // Atomic CN number
+      const rows = await (tx as PrismaService).$queryRaw<InvoiceNumberRow[]>(
+        Prisma.sql`SELECT next_invoice_number(
+          ${tenantId}::uuid,
+          ${prefix}::text,
+          ${year}::int
+        ) AS invoice_number`,
+      );
+      const number = rows[0]?.invoice_number;
+      if (!number) throw new Error('next_invoice_number returned no result');
+
+      const today = new Date();
+
+      const created = await (tx as PrismaService).invoice.create({
+        data: {
+          tenantId,
+          number,
+          type:             'CREDIT_NOTE',
+          status:           'DRAFT',
+          sellerId:         original.sellerId,
+          buyerId:          original.buyerId,
+          issuedAt:         today,
+          dueAt:            today,
+          currencyCode:     original.currencyCode,
+          language:         original.language ?? 'en',
+          note:             dto.reason,
+          subtotal:         lineExtensionAmount,
+          taxAmount,
+          total:            taxInclusiveAmount,
+          createdById:      dbUserId,
+
+          lines: {
+            create: enrichedLines.map((line) => ({
+              lineNumber:  line.lineNumber,
+              description: line.description,
+              quantity:    line.quantity,
+              unit:        line.unit,
+              unitPrice:   line.unitPrice,
+              discount:    0,
+              taxRateId:   line.taxRateId,
+              lineTotal:   line.netAmount,
+              taxAmount:   line.lineTaxAmount,
+            })),
+          },
+          vatBreakdowns: { create: vatBreakdowns },
+        },
+        include: {
+          lines:        { include: { taxRate: true } },
+          vatBreakdowns: true,
+          buyer:        { include: { addresses: true } },
+          seller:       { include: { addresses: true } },
+        },
+      });
+
+      // Link original invoice → credit note
+      await (tx as PrismaService).invoice.update({
+        where: { id: original.id },
+        data:  { creditNoteId: created.id },
+      });
+
+      // AuditLog
+      await (tx as PrismaService).auditLog.create({
+        data: {
+          tenantId,
+          invoiceId:  created.id,
+          userId:     keycloakSub  ?? null,
+          action:     'credit_note.created',
+          payload:    {
+            number,
+            originalInvoiceId: original.id,
+            originalNumber:    original.number,
+            reason:            dto.reason,
+            lineExtensionAmount,
+            taxAmount,
+            taxInclusiveAmount,
+          },
+          ipAddress:  ipAddress ?? null,
+        },
+      });
+
+      return created;
+    });
+
+    this.logger.log(
+      `Credit note created: ${creditNote.number} for ${original.number} | tenant=${tenantId}`,
+    );
+
+    return {
+      ...creditNote,
+      originalInvoiceNumber: original.number,
+      totals: {
+        lineExtensionAmount,
+        taxAmount,
+        taxInclusiveAmount,
+        currency: original.currencyCode,
+      },
+    };
+  }
+
+  // ── Payment tracking ──────────────────────────────────────────────────────────
+
+  async recordPayment(
+    tenantId:    string,
+    invoiceId:   string,
+    dto:         CreatePaymentDto,
+    keycloakSub?: string,
+    ipAddress?:   string,
+  ) {
+    const invoice    = await this.findOne(tenantId, invoiceId);
+    const totalPaid  = round2(invoice.payments.reduce((s, p) => s + Number(p.amount), 0));
+    const invoiceTotal = Number(invoice.total);
+    const remaining  = round2(invoiceTotal - totalPaid);
+
+    if (dto.amount > remaining + 0.005) {
+      throw new BadRequestException(
+        `Payment amount ${dto.amount} exceeds remaining balance ${remaining.toFixed(2)}`,
+      );
+    }
+
+    const newTotalPaid = round2(totalPaid + dto.amount);
+    const newStatus =
+      newTotalPaid >= invoiceTotal - 0.005
+        ? 'PAID'
+        : 'PARTIALLY_PAID';
+
+    const [payment] = await this.prisma.$transaction([
+      this.prisma.payment.create({
+        data: {
+          invoiceId:  invoice.id,
+          tenantId,
+          amount:     dto.amount,
+          currency:   invoice.currencyCode,
+          method:     ((dto.method ?? 'BANK_TRANSFER').toUpperCase()) as any,
+          reference:  dto.reference ?? null,
+          notes:      dto.notes     ?? null,
+          paidAt:     new Date(dto.paidAt),
+        },
+      }),
+      this.prisma.invoice.update({
+        where: { id: invoice.id },
+        data:  { status: newStatus },
+      }),
+      this.prisma.auditLog.create({
+        data: {
+          tenantId,
+          invoiceId:  invoice.id,
+          userId:     keycloakSub ?? null,
+          action:     'payment.recorded',
+          payload:    {
+            amount:     dto.amount,
+            paidAt:     dto.paidAt,
+            newStatus,
+            totalPaid:  newTotalPaid,
+            remaining:  round2(invoiceTotal - newTotalPaid),
+          },
+          ipAddress:  ipAddress ?? null,
+        },
+      }),
+    ]);
+
+    return payment;
+  }
+
+  async getPayments(tenantId: string, invoiceId: string) {
+    const invoice  = await this.findOne(tenantId, invoiceId);
+    const payments = invoice.payments;
+
+    const totalPaid    = round2(payments.reduce((s, p) => s + Number(p.amount), 0));
+    const invoiceTotal = Number(invoice.total);
+    const remaining    = round2(invoiceTotal - totalPaid);
+    const percentPaid  = invoiceTotal === 0 ? 100 : Math.round((totalPaid / invoiceTotal) * 100 * 100) / 100;
+
+    return {
+      payments,
+      totalPaid,
+      remaining,
+      isPaid:      remaining <= 0.005,
+      percentPaid,
+      currency:    invoice.currencyCode,
+    };
+  }
+
+  async deletePayment(tenantId: string, invoiceId: string, paymentId: string) {
+    const invoice = await this.findOne(tenantId, invoiceId);
+
+    const payment = await this.prisma.payment.findFirst({
+      where: { id: paymentId, invoiceId: invoice.id },
+    });
+    if (!payment) throw new NotFoundException(`Payment ${paymentId} not found`);
+
+    await this.prisma.payment.delete({ where: { id: paymentId } });
+
+    // Recalculate from remaining payments
+    const remaining      = invoice.payments.filter((p) => p.id !== paymentId);
+    const newTotalPaid   = round2(remaining.reduce((s, p) => s + Number(p.amount), 0));
+    const invoiceTotal   = Number(invoice.total);
+
+    const newStatus =
+      newTotalPaid >= invoiceTotal - 0.005
+        ? 'PAID'
+        : newTotalPaid > 0
+          ? 'PARTIALLY_PAID'
+          : 'SENT';
+
+    await this.prisma.invoice.update({
+      where: { id: invoice.id },
+      data:  { status: newStatus },
+    });
+
+    return {
+      message:      'Payment deleted',
+      newTotalPaid,
+      remaining:    round2(invoiceTotal - newTotalPaid),
+      status:       newStatus,
+    };
   }
 
   // ── Email send: create transmission + enqueue BullMQ job ─────────────────────

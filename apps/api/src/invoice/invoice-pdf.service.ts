@@ -41,10 +41,11 @@ import type { Prisma, BankAccount } from '@prisma/client';
 
 type InvoiceWithAll = Prisma.InvoiceGetPayload<{
   include: {
-    buyer:         { include: { addresses: true } };
-    seller:        { include: { addresses: true } };
-    lines:         { include: { taxRate: true } };
-    vatBreakdowns: true;
+    buyer:           { include: { addresses: true } };
+    seller:          { include: { addresses: true } };
+    lines:           { include: { taxRate: true } };
+    vatBreakdowns:   true;
+    originalInvoice: true;
   };
 }>;
 
@@ -218,10 +219,11 @@ export class InvoicePdfService {
         ...(isUuid ? { id: idOrNumber } : { number: idOrNumber }),
       },
       include: {
-        buyer:         { include: { addresses: { orderBy: { isDefault: 'desc' } } } },
-        seller:        { include: { addresses: { orderBy: { isDefault: 'desc' } } } },
-        lines:         { include: { taxRate: true }, orderBy: { lineNumber: 'asc' } },
-        vatBreakdowns: { orderBy: { vatRatePercent: 'asc' } },
+        buyer:           { include: { addresses: { orderBy: { isDefault: 'desc' } } } },
+        seller:          { include: { addresses: { orderBy: { isDefault: 'desc' } } } },
+        lines:           { include: { taxRate: true }, orderBy: { lineNumber: 'asc' } },
+        vatBreakdowns:   { orderBy: { vatRatePercent: 'asc' } },
+        originalInvoice: true,
       },
     });
 
@@ -259,14 +261,21 @@ export class InvoicePdfService {
     const pdfY = (fromTop: number) => PH - fromTop;
 
     // ── Section 1: Accent header bar ───────────────────────────────────────
-    const BAR_H = 54;
+    const isCreditNote = inv.type === 'CREDIT_NOTE';
+    const BAR_H = isCreditNote ? 68 : 54;
     rect(page, 0, pdfY(BAR_H), PW, BAR_H, C.accent);
 
-    // "INVOICE" wordmark
-    ltxt(page, 'INVOICE', ML, pdfY(BAR_H - 16), bold, 21, C.white);
+    // Document type wordmark
+    const wordmark = isCreditNote ? 'CREDIT NOTE' : 'INVOICE';
+    ltxt(page, wordmark, ML, pdfY(BAR_H - 16), bold, 21, C.white);
 
-    // Invoice number in bar
-    ltxt(page, `No. ${inv.number}`, ML + 126, pdfY(BAR_H - 16), reg, 13, C.accentLt);
+    // Document number in bar
+    ltxt(page, `No. ${inv.number}`, ML + (isCreditNote ? 180 : 126), pdfY(BAR_H - 16), reg, 13, C.accentLt);
+
+    // For credit notes, show "Credit note for INV-XXXX" as subtitle
+    if (isCreditNote && inv.originalInvoice) {
+      ltxt(page, `Credit note for ${inv.originalInvoice.number}`, ML, pdfY(BAR_H - 34), reg, 9.5, C.accentLt);
+    }
 
     // Status badge (right side of bar)
     const badgeText = inv.status;

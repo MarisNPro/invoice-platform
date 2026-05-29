@@ -39,6 +39,8 @@ export interface UblInvoiceInput {
   buyerReference?: string;
   orderReference?: string;
   note?: string;
+  /** BT-25 Preceding invoice reference — original invoice number for credit notes */
+  billingReference?: string;
   seller: UblParty;
   buyer: UblParty;
   lines: UblLine[];
@@ -79,6 +81,11 @@ export class UblInvoiceBuilder {
     if (input.buyerReference) root.ele('cbc:BuyerReference').txt(input.buyerReference);
     if (input.orderReference) {
       root.ele('cac:OrderReference').ele('cbc:ID').txt(input.orderReference);
+    }
+    if (input.billingReference) {
+      root.ele('cac:BillingReference')
+        .ele('cac:InvoiceDocumentReference')
+        .ele('cbc:ID').txt(input.billingReference);
     }
 
     this.party(root, 'cac:AccountingSupplierParty', input.seller);

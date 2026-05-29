@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   DefaultValuePipe,
+  Delete,
   Get,
   Ip,
   NotFoundException,
@@ -27,6 +28,8 @@ import { RolesGuard } from '../auth/roles.guard';
 import { PlanLimitGuard } from '../auth/plan-limit.guard';
 import type { JwtPayload } from '../auth/jwt-payload.interface';
 import { CreateInvoiceBodyDto } from './dto/create-invoice.dto';
+import { CreateCreditNoteDto } from './dto/create-credit-note.dto';
+import { CreatePaymentDto } from './dto/create-payment.dto';
 import { DunningMessageDto } from './dto/dunning-message.dto';
 import { SendInvoiceDto } from './dto/send-invoice.dto';
 import type { CreateInvoiceDto } from './invoice.types';
@@ -302,6 +305,83 @@ export class InvoiceController {
       body.amount,
       new Date(body.paidAt),
     );
+  }
+
+  // ── POST /api/v1/invoices/:idOrNumber/credit-note ─────────────────────────
+  /**
+   * Creates a credit note for an existing invoice.
+   * Empty lines → full credit (all original lines negated).
+   * Provided lines → partial credit note.
+   * Number format: CN-YYYY-NNNNN (own sequence per tenant/year).
+   * UBL type code 381. BillingReference BT-25 links back to original.
+   */
+  @Post(':idOrNumber/credit-note')
+  @Roles(Role.ADMIN, Role.ACCOUNTANT)
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  createCreditNote(
+    @Param('idOrNumber') idOrNumber: string,
+    @Body() dto: CreateCreditNoteDto,
+    @CurrentUser() user: JwtPayload,
+    @Ip() ip: string,
+  ) {
+    return this.invoices.createCreditNote(
+      user.tenant_id ?? '',
+      idOrNumber,
+      dto,
+      user.sub,
+      ip,
+    );
+  }
+
+  // ── POST /api/v1/invoices/:id/payments ────────────────────────────────────
+  /**
+   * Records a payment against an invoice.
+   * Validates amount does not exceed remaining balance.
+   * Automatically sets status to PAID or PARTIALLY_PAID.
+   */
+  @Post(':id/payments')
+  @Roles(Role.ADMIN, Role.ACCOUNTANT)
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  recordPayment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreatePaymentDto,
+    @CurrentUser() user: JwtPayload,
+    @Ip() ip: string,
+  ) {
+    return this.invoices.recordPayment(
+      user.tenant_id ?? '',
+      id,
+      dto,
+      user.sub,
+      ip,
+    );
+  }
+
+  // ── GET /api/v1/invoices/:id/payments ─────────────────────────────────────
+  /**
+   * Returns all payments for an invoice with balance summary.
+   * Returns: { payments, totalPaid, remaining, isPaid, percentPaid, currency }
+   */
+  @Get(':id/payments')
+  getPayments(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.invoices.getPayments(user.tenant_id ?? '', id);
+  }
+
+  // ── DELETE /api/v1/invoices/:id/payments/:paymentId ───────────────────────
+  /**
+   * Deletes a payment and recalculates invoice status.
+   */
+  @Delete(':id/payments/:paymentId')
+  @Roles(Role.ADMIN, Role.ACCOUNTANT)
+  deletePayment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('paymentId', ParseUUIDPipe) paymentId: string,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.invoices.deletePayment(user.tenant_id ?? '', id, paymentId);
   }
 
   // ── Legacy POST with full internal DTO (kept for internal tooling) ────────
