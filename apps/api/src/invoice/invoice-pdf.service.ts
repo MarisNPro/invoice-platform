@@ -34,6 +34,7 @@
 
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
+import QRCode from 'qrcode';
 import { PrismaService } from '../prisma/prisma.service';
 import type { Prisma, BankAccount } from '@prisma/client';
 
@@ -489,6 +490,53 @@ export class InvoicePdfService {
         rtxt(page, row.value, TOT_RX,  pdfY(totY + TOT_ROW_H - 5), f, row.bold ? 9.5 : 9, C.dark);
       }
       totY += TOT_ROW_H;
+    }
+
+    // ── Section 6b: SEPA EPC QR code (only when seller IBAN is known) ──────────
+
+    if (bank?.iban) {
+      const epcContent = [
+        'BCD',
+        '002',
+        '1',
+        'SCT',
+        bank.bic ?? '',
+        inv.seller.name,
+        bank.iban,
+        `EUR${Number(inv.total).toFixed(2)}`,
+        '',
+        '',
+        inv.number,
+        '',
+      ].join('\n');
+
+      try {
+        const qrPng = await QRCode.toBuffer(epcContent, { type: 'png', width: 150, margin: 1 });
+        const qrImage = await doc.embedPng(qrPng);
+
+        const QR_SIZE  = 80;    // display size in PDF points
+        const qrLeft   = TOT_RX - QR_SIZE;
+        const qrFromTop = curY + TOT_H + 10;
+        const qrPdfY   = pdfY(qrFromTop + QR_SIZE);  // bottom-left in pdf-lib coords
+
+        doc.setSubject(`Invoice ${inv.number}`);  // keep metadata intact
+        page.drawImage(qrImage, { x: qrLeft, y: qrPdfY, width: QR_SIZE, height: QR_SIZE });
+
+        // Label below QR code
+        const labelText = 'Scan to pay (SEPA)';
+        const labelSize = 7;
+        const labelW    = reg.widthOfTextAtSize(labelText, labelSize);
+        const labelX    = qrLeft + (QR_SIZE - labelW) / 2;
+        page.drawText(labelText, {
+          x: labelX,
+          y: qrPdfY - 10,
+          font: reg,
+          size: labelSize,
+          color: C.muted,
+        });
+      } catch (err) {
+        this.logger.warn(`QR code generation failed (non-fatal): ${(err as Error).message}`);
+      }
     }
 
     // ── Section 7: Footer ─────────────────────────────────────────────────────

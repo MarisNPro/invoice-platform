@@ -60,6 +60,8 @@ describe('AdminController', () => {
       terminateUserSessions: jest.fn(),
       getSystemHealth:       jest.fn(),
       getAiCosts:            jest.fn(),
+      getVatRates:           jest.fn(),
+      updateVatRate:         jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({

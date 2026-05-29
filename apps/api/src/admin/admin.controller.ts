@@ -17,6 +17,7 @@ import { Role, Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { AdminService } from './admin.service';
 import { UpdatePlanDto } from './dto/update-plan.dto';
+import { UpdateVatRateDto } from './dto/update-vat-rate.dto';
 
 @Controller('admin')
 @UseGuards(RolesGuard)
@@ -149,5 +150,21 @@ export class AdminController {
   @Get('ai-costs')
   getAiCosts() {
     return this.admin.getAiCosts();
+  }
+
+  // 14. GET /admin/vat-rates
+  @Get('vat-rates')
+  getVatRates() {
+    return this.admin.getVatRates();
+  }
+
+  // 15. PATCH /admin/vat-rates/:id
+  @Patch('vat-rates/:id')
+  updateVatRate(
+    @Param('id') id: string,
+    @Body() dto: UpdateVatRateDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.admin.updateVatRate(id, dto, user.sub);
   }
 }

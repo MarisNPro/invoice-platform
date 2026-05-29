@@ -237,6 +237,7 @@ model TaxRate {
   /// EN 16931 tax category code: S, Z, E, AE, K, G, O, L, M
   categoryCode String  @db.VarChar(2)
   isDefault    Boolean @default(false)
+  isActive     Boolean @default(true)
 
   tenant       Tenant        @relation(fields: [tenantId], references: [id])
   products     Product[]

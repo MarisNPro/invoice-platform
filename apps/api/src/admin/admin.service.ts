@@ -14,6 +14,7 @@ import { REDIS_CLIENT } from '../common/redis/redis.constants';
 import { ElasticsearchService } from '../common/elasticsearch/elasticsearch.service';
 import { PLAN_REVENUE_CENTS } from '../organisation/organisation.service';
 import type { UpdatePlanDto } from './dto/update-plan.dto';
+import type { UpdateVatRateDto } from './dto/update-vat-rate.dto';
 import type { Plan } from '@prisma/client';
 
 // ── Keycloak helpers ──────────────────────────────────────────────────────────
@@ -564,6 +565,73 @@ export class AdminService {
     return {
       orgs,
       totals: { totalRevenueCents, totalAiSpendCents, totalMarginPercent, flaggedOrgs },
+    };
+  }
+
+  // ── 14. GET /admin/vat-rates ────────────────────────────────────────────────
+
+  async getVatRates() {
+    const rates = await this.prisma.taxRate.findMany({
+      include: { tenant: { select: { country: true } } },
+      orderBy: [{ tenant: { country: 'asc' } }, { rate: 'asc' }],
+    });
+
+    return rates.map((r) => ({
+      id:          r.id,
+      tenantId:    r.tenantId,
+      countryCode: r.tenant.country,
+      name:        r.name,
+      rate:        Math.round(Number(r.rate) * 10000) / 100,  // fractional → percent (0.21 → 21.00)
+      categoryCode: r.categoryCode,
+      isDefault:   r.isDefault,
+      isActive:    r.isActive,
+    }));
+  }
+
+  // ── 15. PATCH /admin/vat-rates/:id ─────────────────────────────────────────
+
+  async updateVatRate(id: string, dto: UpdateVatRateDto, adminId: string) {
+    const existing = await this.prisma.taxRate.findUnique({
+      where:   { id },
+      include: { tenant: { select: { country: true } } },
+    });
+    if (!existing) throw new NotFoundException(`VAT rate ${id} not found`);
+
+    const oldRatePct = Math.round(Number(existing.rate) * 10000) / 100;
+
+    const updated = await this.prisma.taxRate.update({
+      where: { id },
+      data:  {
+        ...(dto.name     !== undefined ? { name:     dto.name                } : {}),
+        ...(dto.rate     !== undefined ? { rate:     dto.rate / 100          } : {}),
+        ...(dto.isActive !== undefined ? { isActive: dto.isActive            } : {}),
+      },
+      include: { tenant: { select: { country: true } } },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId: existing.tenantId,
+        userId:   adminId,
+        action:   'ADMIN_VAT_RATE_UPDATED',
+        payload:  {
+          countryCode: existing.tenant.country,
+          oldRate:     oldRatePct,
+          newRate:     dto.rate ?? oldRatePct,
+          adminId,
+        },
+      },
+    });
+
+    return {
+      id:          updated.id,
+      tenantId:    updated.tenantId,
+      countryCode: updated.tenant.country,
+      name:        updated.name,
+      rate:        Math.round(Number(updated.rate) * 10000) / 100,
+      categoryCode: updated.categoryCode,
+      isDefault:   updated.isDefault,
+      isActive:    updated.isActive,
     };
   }
 
