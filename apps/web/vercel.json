@@ -4,8 +4,5 @@
   "regions": ["fra1"],
   "installCommand": "cd ../.. && pnpm install",
   "buildCommand": "cd ../.. && pnpm turbo run build --filter=@invoice/web",
-  "outputDirectory": ".next",
-  "env": {
-    "NEXT_PUBLIC_API_URL": "@api_url"
-  }
+  "outputDirectory": ".next"
 }
