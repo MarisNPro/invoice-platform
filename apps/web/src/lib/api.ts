@@ -1,14 +1,30 @@
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 const DEV_TENANT = process.env.NEXT_PUBLIC_DEV_TENANT_ID ?? '00000000-0000-0000-0000-000000000001';
 
-function devHeaders(): Record<string, string> {
-  if (process.env.NODE_ENV === 'production') return {};
-  return { 'x-dev-tenant-id': DEV_TENANT };
+/**
+ * Auth header for API calls. Prefers the Supabase access token (Bearer); falls
+ * back to the x-dev-tenant-id bypass in non-production for local dev. The
+ * Supabase client is imported dynamically + window-guarded so this module stays
+ * usable from any context without crossing the server/client boundary.
+ */
+async function authHeaders(): Promise<Record<string, string>> {
+  if (typeof window !== 'undefined') {
+    try {
+      const { getSupabaseBrowser } = await import('./supabase/client');
+      const { data } = await getSupabaseBrowser().auth.getSession();
+      if (data.session) {
+        return { Authorization: `Bearer ${data.session.access_token}` };
+      }
+    } catch {
+      // Supabase not configured / no session — fall through to dev fallback.
+    }
+  }
+  return process.env.NODE_ENV !== 'production' ? { 'x-dev-tenant-id': DEV_TENANT } : {};
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { ...devHeaders() },
+    headers: { ...(await authHeaders()) },
     cache: 'no-store',
   });
   if (!res.ok) throw new Error(`GET ${path} → ${res.status}`);
@@ -17,7 +33,7 @@ export async function apiGet<T>(path: string): Promise<T> {
 
 export async function apiGetBlob(path: string): Promise<Blob> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { ...devHeaders() },
+    headers: { ...(await authHeaders()) },
     cache: 'no-store',
   });
   if (!res.ok) throw new Error(`GET ${path} → ${res.status}`);
@@ -27,7 +43,7 @@ export async function apiGetBlob(path: string): Promise<Blob> {
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...devHeaders() },
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
