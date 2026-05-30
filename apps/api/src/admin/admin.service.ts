@@ -2,6 +2,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Inject } from '@nestjs/common';
@@ -16,6 +17,15 @@ import { PLAN_REVENUE_CENTS } from '../organisation/organisation.service';
 import type { UpdatePlanDto } from './dto/update-plan.dto';
 import type { UpdateVatRateDto } from './dto/update-vat-rate.dto';
 import type { Plan } from '@prisma/client';
+
+/**
+ * Keycloak Admin API user-management is disabled during the Keycloak → Supabase
+ * auth migration. We must NEVER connect to the Keycloak Admin API with a default
+ * password, so these methods fail closed (503) until the Supabase Admin API port.
+ */
+const ADMIN_MIGRATION_UNAVAILABLE =
+  'Admin user management is temporarily unavailable during the auth migration. ' +
+  'This will be restored with Supabase Admin API.';
 
 // ── Keycloak helpers ──────────────────────────────────────────────────────────
 
@@ -228,37 +238,10 @@ export class AdminService {
 
   // ── 6. POST /admin/users/:id/disable ────────────────────────────────────────
 
-  async disableUser(userId: string, adminId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new NotFoundException(`User ${userId} not found`);
-
-    await this.prisma.user.update({ where: { id: userId }, data: { isActive: false } });
-
-    // Disable in Keycloak (best-effort)
-    try {
-      const adminToken = await this.getKeycloakAdminToken();
-      const kcUrl      = this.config.get('KEYCLOAK_URL', 'http://localhost:8080');
-      const realm      = this.config.get('KEYCLOAK_REALM', 'invoice-platform');
-      await axios.put(
-        `${kcUrl}/admin/realms/${realm}/users/${user.keycloakId}`,
-        { enabled: false },
-        { headers: { Authorization: `Bearer ${adminToken}` }, timeout: 8_000 },
-      );
-      this.logger.log(`Keycloak user ${user.keycloakId} disabled`);
-    } catch (err) {
-      this.logger.warn(`Keycloak disable failed (non-fatal): ${(err as Error).message}`);
-    }
-
-    await this.prisma.auditLog.create({
-      data: {
-        tenantId: user.tenantId,
-        userId:   adminId,
-        action:   'ADMIN_USER_DISABLED',
-        payload:  { targetUserId: userId, targetEmail: user.email, adminId },
-      },
-    });
-
-    return { message: 'User disabled.', userId };
+  async disableUser(_userId: string, _adminId: string) {
+    // Disables the user in Keycloak via the Admin API. Fail closed during the
+    // auth migration rather than connect with a default admin password.
+    throw new ServiceUnavailableException(ADMIN_MIGRATION_UNAVAILABLE);
   }
 
   // ── 7. GET /admin/audit-logs ────────────────────────────────────────────────
@@ -369,71 +352,18 @@ export class AdminService {
   // ── 10. GET /admin/sessions ─────────────────────────────────────────────────
 
   async getSessions() {
-    const kcUrl = this.config.get('KEYCLOAK_URL', 'http://localhost:8080');
-    const realm = this.config.get('KEYCLOAK_REALM', 'invoice-platform');
-
-    try {
-      const adminToken = await this.getKeycloakAdminToken();
-
-      // Session stats from Keycloak
-      const { data: stats } = await axios.get(
-        `${kcUrl}/admin/realms/${realm}/sessions/stats`,
-        { headers: { Authorization: `Bearer ${adminToken}` }, timeout: 8_000 },
-      );
-
-      // Get recently active users from our DB as a proxy for session list
-      const activeUsers = await this.prisma.user.findMany({
-        where:   { isActive: true, lastLoginAt: { not: null } },
-        include: { tenant: { select: { name: true } } },
-        orderBy: { lastLoginAt: 'desc' },
-        take:    50,
-      });
-
-      return {
-        keycloakStats: stats,
-        recentSessions: activeUsers.map((u) => ({
-          userId:      u.id,
-          email:       u.email,
-          orgName:     u.tenant.name,
-          lastLoginAt: u.lastLoginAt,
-        })),
-      };
-    } catch (err) {
-      this.logger.warn(`Keycloak session stats unavailable: ${(err as Error).message}`);
-      return { keycloakStats: null, recentSessions: [], error: 'Keycloak unavailable' };
-    }
+    // Reads session stats from the Keycloak Admin API (requires admin creds).
+    // Fail closed during the auth migration — no connecting with a default
+    // admin password. Restored with the Supabase Admin API port.
+    throw new ServiceUnavailableException(ADMIN_MIGRATION_UNAVAILABLE);
   }
 
   // ── 11. DELETE /admin/sessions/:userId ─────────────────────────────────────
 
-  async terminateUserSessions(userId: string, adminId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new NotFoundException(`User ${userId} not found`);
-
-    const kcUrl = this.config.get('KEYCLOAK_URL', 'http://localhost:8080');
-    const realm = this.config.get('KEYCLOAK_REALM', 'invoice-platform');
-
-    try {
-      const adminToken = await this.getKeycloakAdminToken();
-      await axios.delete(
-        `${kcUrl}/admin/realms/${realm}/users/${user.keycloakId}/sessions`,
-        { headers: { Authorization: `Bearer ${adminToken}` }, timeout: 8_000 },
-      );
-      this.logger.log(`Keycloak sessions terminated for ${user.keycloakId}`);
-    } catch (err) {
-      this.logger.warn(`Keycloak session termination failed (non-fatal): ${(err as Error).message}`);
-    }
-
-    await this.prisma.auditLog.create({
-      data: {
-        tenantId: user.tenantId,
-        userId:   adminId,
-        action:   'ADMIN_SESSION_TERMINATED',
-        payload:  { targetUserId: userId, targetEmail: user.email, adminId },
-      },
-    });
-
-    return { message: 'User sessions terminated.', userId };
+  async terminateUserSessions(_userId: string, _adminId: string) {
+    // Deletes the user's Keycloak sessions via the Admin API. Fail closed during
+    // the auth migration rather than connect with a default admin password.
+    throw new ServiceUnavailableException(ADMIN_MIGRATION_UNAVAILABLE);
   }
 
   // ── 12. GET /admin/system-health ────────────────────────────────────────────
@@ -635,23 +565,4 @@ export class AdminService {
     };
   }
 
-  // ── Keycloak admin token helper ─────────────────────────────────────────────
-
-  private async getKeycloakAdminToken(): Promise<string> {
-    const kcUrl   = this.config.get('KEYCLOAK_URL',             'http://localhost:8080');
-    const admin   = this.config.get('KEYCLOAK_ADMIN',           'admin');
-    const passwd  = this.config.get('KEYCLOAK_ADMIN_PASSWORD',  'admin');
-
-    const { data } = await axios.post(
-      `${kcUrl}/realms/master/protocol/openid-connect/token`,
-      new URLSearchParams({
-        client_id:  'admin-cli',
-        username:   admin,
-        password:   passwd,
-        grant_type: 'password',
-      }),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 8_000 },
-    );
-    return data.access_token as string;
-  }
 }

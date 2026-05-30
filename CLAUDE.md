@@ -16,6 +16,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 4. Run pnpm turbo run typecheck after every change
 5. Test count must not decrease — add tests for new features
 
+## Authentication (Supabase Auth)
+> Status: MIGRATION IN PROGRESS — code still runs on Keycloak as of 2026-05-30.
+> These are the governing rules for the in-flight Keycloak → Supabase Auth migration.
+- Provider: Supabase Auth (migrating away from Keycloak)
+- JWT: validate Supabase JWT, extract user id and tenantId
+- EVERY endpoint validates the Supabase JWT (global guard; opt out only via @Public())
+- EVERY query still filters by tenantId — auth does NOT replace tenant isolation
+- Never trust tenantId from request body, query, or header — only from the validated JWT
+
 ## Module pattern
 apps/api/src/modules/[name]/
   [name].controller.ts  — routes only, no business logic

@@ -49,7 +49,9 @@ export class PgContainerHelper {
       'npx prisma migrate deploy --schema=./prisma/schema.prisma',
       {
         cwd: apiRoot,
-        env:   { ...process.env, DATABASE_URL: url },
+        // schema.prisma declares directUrl = env("DIRECT_URL"); migrate deploy
+        // needs it too. Point both at the container (CI sets both; local may not).
+        env:   { ...process.env, DATABASE_URL: url, DIRECT_URL: url },
         stdio: 'pipe',
       },
     );

@@ -26,4 +26,14 @@ export interface JwtPayload {
 
   /** Custom claim: tenant ID injected by Keycloak mapper */
   tenant_id?: string;
+
+  /**
+   * Supabase Auth: server-controlled, client-IMMUTABLE claim. tenant_id and role
+   * MUST be read only from here — never from user_metadata, which the client can
+   * edit via supabase.auth.updateUser(). This is the multi-tenant security boundary.
+   */
+  app_metadata?: { tenant_id?: string; role?: string };
+
+  /** Which provider/path authenticated this request (observability only). */
+  auth_source?: 'keycloak' | 'supabase' | 'dev';
 }

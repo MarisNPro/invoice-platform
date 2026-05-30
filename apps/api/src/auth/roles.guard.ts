@@ -31,12 +31,15 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('No user context');
     }
 
-    // Collect all roles from realm + resource_access
+    // Collect all roles from every supported source:
+    //  - Keycloak: realm_access.roles + resource_access[client].roles
+    //  - Supabase: app_metadata.role (single role string, client-immutable)
     const realmRoles = user.realm_access?.roles ?? [];
     const resourceRoles = Object.values(user.resource_access ?? {}).flatMap(
       (r) => r.roles,
     );
-    const allRoles = new Set([...realmRoles, ...resourceRoles]);
+    const supabaseRole = user.app_metadata?.role ? [user.app_metadata.role] : [];
+    const allRoles = new Set([...realmRoles, ...resourceRoles, ...supabaseRole]);
 
     const hasRole = requiredRoles.some((r) => allRoles.has(r));
 
