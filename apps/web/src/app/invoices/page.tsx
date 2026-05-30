@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { apiGet, type InvoiceListResponse, type ContactResult } from '@/lib/api';
@@ -37,7 +37,7 @@ const inputCls = cn(
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function InvoicesPage() {
+function InvoicesContent() {
   const router       = useRouter();
   const searchParams = useSearchParams();
 
@@ -285,5 +285,24 @@ export default function InvoicesPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+// useSearchParams() must be read inside a Suspense boundary (Next.js App Router),
+// otherwise the page de-opts to client-side rendering and the build errors.
+export default function InvoicesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div
+          data-theme="dark"
+          className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground"
+        >
+          Loading…
+        </div>
+      }
+    >
+      <InvoicesContent />
+    </Suspense>
   );
 }
