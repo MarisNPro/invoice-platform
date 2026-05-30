@@ -1,1 +1,15 @@
-{"$schema":"https://openapi.vercel.sh/vercel.json","framework":"nextjs","rootDirectory":"apps/web","regions":["fra1"],"env":{"NEXT_PUBLIC_API_URL":"@api_url","NEXT_PUBLIC_KEYCLOAK_URL":"@keycloak_url","NEXT_PUBLIC_KEYCLOAK_REALM":"@keycloak_realm","NEXT_PUBLIC_KEYCLOAK_CLIENT_ID":"@keycloak_client_id"}}
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "rootDirectory": "apps/web",
+  "regions": ["fra1"],
+  "installCommand": "cd ../.. && pnpm install",
+  "buildCommand": "cd ../.. && pnpm turbo run build --filter=@invoice/web",
+  "outputDirectory": ".next",
+  "env": {
+    "NEXT_PUBLIC_API_URL": "@api_url",
+    "NEXT_PUBLIC_KEYCLOAK_URL": "@keycloak_url",
+    "NEXT_PUBLIC_KEYCLOAK_REALM": "@keycloak_realm",
+    "NEXT_PUBLIC_KEYCLOAK_CLIENT_ID": "@keycloak_client_id"
+  }
+}
