@@ -83,7 +83,14 @@ ENV NODE_ENV=production
 ENV PORT=4000
 WORKDIR /app
 
-COPY --from=deps    --chown=nestjs:nodejs /app/node_modules ./node_modules
+# The Prisma client is generated in the builder stage (deps installs with
+# --ignore-scripts, so it has no client). With shamefully-hoist=false the client
+# lives in the pnpm store (node_modules/.pnpm) and is reached via the symlinks in
+# apps/api/node_modules — so copy BOTH trees from builder, not deps. Copying
+# node_modules/.prisma or /@prisma directly does NOT work (those paths don't
+# exist at the top level). Same fix as apps/worker/Dockerfile.
+COPY --from=builder --chown=nestjs:nodejs /app/node_modules          ./node_modules
+COPY --from=builder --chown=nestjs:nodejs /app/apps/api/node_modules ./apps/api/node_modules
 
 COPY --from=builder --chown=nestjs:nodejs /app/packages/shared-types/dist       ./packages/shared-types/dist
 COPY --from=builder --chown=nestjs:nodejs /app/packages/shared-types/package.json ./packages/shared-types/package.json
