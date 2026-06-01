@@ -55,7 +55,11 @@ RUN pnpm --filter @invoice/worker run build
 
 # ── Stage 4: runner ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
-RUN apk add --no-cache libc6-compat dumb-init
+# openssl: required at runtime by Prisma's query engine. Without it the engine
+# fails to detect libssl, defaults to openssl-1.1.x, and crashes on Alpine
+# (musl + OpenSSL 3.x). Worker shares apps/api/prisma/schema.prisma, whose
+# binaryTargets already include linux-musl-openssl-3.0.x.
+RUN apk add --no-cache libc6-compat dumb-init openssl
 
 RUN addgroup --system --gid 1001 nodejs \
  && adduser  --system --uid 1001 worker

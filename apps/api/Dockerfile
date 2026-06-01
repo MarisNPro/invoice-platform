@@ -73,7 +73,10 @@ RUN pnpm --filter @invoice/api run build
 
 # ── Stage 4: runner (minimal production image) ────────────────────────────────
 FROM node:20-alpine AS runner
-RUN apk add --no-cache libc6-compat dumb-init
+# openssl: required at runtime by Prisma's query/schema engine. Without it the
+# engine fails to detect libssl, defaults to openssl-1.1.x, and crashes with
+# "Could not parse schema engine response" on Alpine (musl + OpenSSL 3.x).
+RUN apk add --no-cache libc6-compat dumb-init openssl
 
 # Non-root user
 RUN addgroup --system --gid 1001 nodejs \
