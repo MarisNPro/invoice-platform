@@ -13,6 +13,9 @@ docker-compose.override.yml
 **/dist
 **/.next
 **/build
+# composite-project incremental caches — must NOT leak into the build context,
+# or tsc skips emit (sees "up to date") and dependent packages fail to find .d.ts
+**/*.tsbuildinfo
 
 # ── node_modules (installed inside Docker) ───────────────────────────────────
 **/node_modules

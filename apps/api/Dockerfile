@@ -101,6 +101,11 @@ COPY --from=builder --chown=nestjs:nodejs /app/packages/vat-engine/dist         
 COPY --from=builder --chown=nestjs:nodejs /app/packages/vat-engine/package.json   ./packages/vat-engine/package.json
 COPY --from=builder --chown=nestjs:nodejs /app/packages/ubl-builder/dist        ./packages/ubl-builder/dist
 COPY --from=builder --chown=nestjs:nodejs /app/packages/ubl-builder/package.json  ./packages/ubl-builder/package.json
+# ubl-builder requires xmlbuilder2 at runtime. With shamefully-hoist=false it is
+# NOT at top-level node_modules — only in the .pnpm store (copied above) and
+# symlinked from here. This is the only workspace package with an external
+# runtime dep, so it's the only packages/*/node_modules the runner needs.
+COPY --from=builder --chown=nestjs:nodejs /app/packages/ubl-builder/node_modules ./packages/ubl-builder/node_modules
 COPY --from=builder --chown=nestjs:nodejs /app/packages/en16931/dist            ./packages/en16931/dist
 COPY --from=builder --chown=nestjs:nodejs /app/packages/en16931/package.json      ./packages/en16931/package.json
 COPY --from=builder --chown=nestjs:nodejs /app/packages/i18n/dist               ./packages/i18n/dist
