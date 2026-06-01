@@ -32,19 +32,17 @@ export class KeycloakJwtGuard implements CanActivate {
     this.keycloakConfigured = url !== '' && realm !== '' && clientId !== '';
 
     if (!this.keycloakConfigured) {
-      // Fail fast in production: refusing to boot is far safer than silently
-      // serving requests with authentication disabled on a live deployment.
-      if (process.env.NODE_ENV === 'production') {
-        throw new Error(
-          'KEYCLOAK_URL, KEYCLOAK_REALM and KEYCLOAK_CLIENT_ID are required in ' +
-            'production — refusing to start with authentication disabled.',
-        );
-      }
+      // Keycloak is being retired in favour of Supabase Auth. An unconfigured
+      // Keycloak is NOT fatal: it simply disables the legacy JWT path. The
+      // boot-time "at least one auth provider in production" guarantee lives in
+      // CompositeAuthGuard, which skips this guard's branch when isConfigured()
+      // is false. This guard never authenticates anything while unconfigured —
+      // its standalone canActivate() still rejects (401) below, never allows.
       this.issuer = '';
       this.audience = '';
       this.logger.warn(
-        'Keycloak is NOT configured — JWT verification is disabled. Only the ' +
-          'x-dev-tenant-id dev bypass will grant access (non-production only).',
+        'Keycloak is not configured — legacy Keycloak JWT path disabled. ' +
+          'Supabase Auth handles authentication via the composite guard.',
       );
       return;
     }
@@ -82,9 +80,10 @@ export class KeycloakJwtGuard implements CanActivate {
     }
 
     // ── Keycloak not configured ───────────────────────────────────────────
-    // Reached only in non-production (production fails fast in the constructor).
-    // Without Keycloak we cannot verify a JWT, so the dev bypass above is the
-    // only valid entry point — reject everything else rather than allowing it.
+    // This guard is not the global route guard (CompositeAuthGuard is); this
+    // standalone path runs only in unit tests. Without Keycloak we cannot verify
+    // a JWT, so the dev bypass above is the only valid entry point — reject
+    // everything else rather than allowing it. Never blanket-allows.
     if (!this.keycloakConfigured) {
       throw new UnauthorizedException(
         'Authentication unavailable: Keycloak is not configured. ' +

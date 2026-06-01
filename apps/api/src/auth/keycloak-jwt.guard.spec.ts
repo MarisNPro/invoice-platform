@@ -1,9 +1,10 @@
 /**
- * Unit tests for KeycloakJwtGuard — focused on the "Keycloak optional in
- * dev/staging" behaviour:
- *  - Production refuses to construct when Keycloak is not configured (fail fast)
+ * Unit tests for KeycloakJwtGuard — focused on the "Keycloak optional" behaviour
+ * now that Supabase Auth is the backend and Keycloak is being retired:
+ *  - Unconfigured Keycloak is non-fatal in ALL environments (isConfigured()=false);
+ *    the boot-time "≥1 provider in prod" gate lives in CompositeAuthGuard
  *  - Non-production + unconfigured + x-dev-tenant-id → synthetic admin user
- *  - Non-production + unconfigured + no bypass header → 401 (never blanket-allow)
+ *  - Unconfigured + no bypass header → 401 (never blanket-allow)
  *  - @Public() routes are always allowed
  */
 
@@ -57,11 +58,16 @@ describe('KeycloakJwtGuard — Keycloak optional', () => {
     process.env.NODE_ENV = originalNodeEnv;
   });
 
-  it('throws at construction in production when Keycloak is unconfigured', () => {
+  it('does NOT throw in production when Keycloak is unconfigured (Supabase is the backend)', () => {
+    // Keycloak is retired: an unconfigured Keycloak must be a benign, disabled
+    // state. The "no auth provider in production" boot gate lives in
+    // CompositeAuthGuard, not here. See composite-auth.guard.spec.ts.
     process.env.NODE_ENV = 'production';
-    expect(() => new KeycloakJwtGuard(makeConfig({}), makeReflector())).toThrow(
-      /production/i,
-    );
+    let guard: KeycloakJwtGuard;
+    expect(() => {
+      guard = new KeycloakJwtGuard(makeConfig({}), makeReflector());
+    }).not.toThrow();
+    expect(guard!.isConfigured()).toBe(false);
   });
 
   it('constructs in non-production when Keycloak is unconfigured', () => {
