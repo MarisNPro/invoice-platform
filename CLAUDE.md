@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - NestJS + Fastify (API) · Next.js 14 (web) · BullMQ (worker)
 - PostgreSQL via Prisma · Redis (Upstash)
 - Hosting: **Supabase** (Postgres + Auth, Frankfurt) · **Vercel** (web, fra1) · **Railway** (API + worker, EU West)
-- Retired / do not reintroduce: **Keycloak**, **Hetzner + Coolify**, **AWS**. **Elasticsearch** is legacy (LV/LT company search only) and being phased out.
+- Retired / do not reintroduce: **Keycloak**, **Hetzner + Coolify**, **Elasticsearch**, **AWS**. (Elasticsearch removed from all app code — LV/LT search is Postgres `pg_trgm`; local/infra ES containers pending teardown in ticket C.)
 - All data stays in the EU.
 
 ## Critical rules
@@ -156,7 +156,7 @@ After editing `schema.prisma`, run `db:generate` before building. In production,
 
 Copy `infra/deploy/.env.production.example` → `.env` and fill in values. The API loads `.env.local` then `.env` from the repo root (two levels up from `apps/api`).
 
-Key variables: `DATABASE_URL`, `DIRECT_URL`, `REDIS_URL`, `ELASTICSEARCH_URL`, `KEYCLOAK_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET`, `S3_ENDPOINT`, `S3_BUCKET`, `RESEND_API_KEY`, `ANTHROPIC_API_KEY`.
+Key variables: `DATABASE_URL`, `DIRECT_URL`, `REDIS_URL`, `KEYCLOAK_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET`, `S3_ENDPOINT`, `S3_BUCKET`, `RESEND_API_KEY`, `ANTHROPIC_API_KEY`.
 
 ## Deployment
 

@@ -1,0 +1,27 @@
+{
+  "name": "@invoice/company-sync",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "require": "./dist/index.js",
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": { "build": "tsc", "typecheck": "tsc --noEmit" },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "csv-parse": "^5.5.6"
+  },
+  "peerDependencies": {
+    "@prisma/client": "^5.16.0"
+  },
+  "devDependencies": {
+    "@prisma/client": "^5.16.0",
+    "@types/node": "^20.14.10",
+    "typescript": "^5.4.5"
+  }
+}

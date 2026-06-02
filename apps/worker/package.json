@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.0",
-    "@elastic/elasticsearch": "^8.13.1",
+    "@invoice/company-sync": "workspace:*",
     "@prisma/client": "^5.16.0",
     "@types/nodemailer": "^8.0.0",
     "axios": "^1.7.2",

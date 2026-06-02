@@ -46,6 +46,7 @@ jobs:
           pnpm --filter @invoice/ubl-builder  run build
           pnpm --filter @invoice/en16931      run build
           pnpm --filter @invoice/i18n         run build
+          pnpm --filter @invoice/company-sync run build
           pnpm --filter @invoice/ui           run build
 
       - name: Typecheck all packages
@@ -123,6 +124,7 @@ jobs:
           pnpm --filter @invoice/ubl-builder  run build
           pnpm --filter @invoice/en16931      run build
           pnpm --filter @invoice/i18n         run build
+          pnpm --filter @invoice/company-sync run build
 
       - name: Run tests
         run: pnpm turbo test
