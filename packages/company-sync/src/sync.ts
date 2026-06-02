@@ -70,9 +70,9 @@ async function upsertCompanies(prisma: PrismaClient, rows: CompanyRow[]): Promis
     (c) => Prisma.sql`(${c.id}, ${c.country}, ${c.name}, ${c.regNumber}, ${c.vatNumber ?? null}, ${c.legalForm ?? null}, ${c.address ?? null}, ${c.status}, ${c.source})`,
   );
   await prisma.$executeRaw`
-    INSERT INTO company_registry (id, country, name, "regNumber", "vatNumber", "legalForm", address, status, source)
+    INSERT INTO company_register (id, country, name, "regNumber", "vatNumber", "legalForm", address, status, source)
     VALUES ${Prisma.join(values)}
-    ON CONFLICT (id) DO UPDATE SET
+    ON CONFLICT (country, "regNumber") DO UPDATE SET
       name        = EXCLUDED.name,
       "vatNumber" = EXCLUDED."vatNumber",
       "legalForm" = EXCLUDED."legalForm",

@@ -573,14 +573,16 @@ model RecurringInvoice {
   @@map("recurring_invoices")
 }
 
-// ── Company registry (global LV/LT search index) ──────────────────────────────
+// ── National company register (global LV/LT search) ───────────────────────────
 // Intentionally GLOBAL — NO tenantId. This is the ~445k-row national company
-// register (the documented exception to tenant scoping). Replaces the
-// Elasticsearch companies_lv / companies_lt indexes with Postgres pg_trgm search.
-// id = "LV-<regcode>" / "LT-<kodas>". The trigram GIN index on `name` is created
-// in the migration (raw SQL — not expressible in vanilla Prisma schema).
-model CompanyRegistry {
-  id        String   @id // "LV-<regcode>" / "LT-<kodas>"
+// register (the documented exception to tenant scoping; tenant-agnostic public
+// data). Replaces the Elasticsearch companies_lv / companies_lt indexes with
+// Postgres pg_trgm search. Columns mirror CompanyDocument (company.types.ts).
+// id = "LV-<regNumber>" / "LT-<regNumber>"; the natural key is (country, regNumber).
+// The trigram GIN index on `name` is created in the migration (raw SQL — not
+// expressible in vanilla Prisma schema).
+model CompanyRegister {
+  id        String   @id // "LV-<regNumber>" / "LT-<regNumber>"
   country   String   @db.Char(2) // LV | LT
   name      String
   regNumber String
@@ -591,6 +593,7 @@ model CompanyRegistry {
   source    String
   updatedAt DateTime @default(now()) @updatedAt
 
+  @@unique([country, regNumber])
   @@index([country])
-  @@map("company_registry")
+  @@map("company_register")
 }

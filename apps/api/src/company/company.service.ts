@@ -14,6 +14,10 @@ import type {
 
 const CACHE_TTL = 600; // seconds
 
+// pg_trgm similarity threshold for the `name % $query` operator. Lower than the
+// default 0.3 so short autocomplete fragments still match long company names.
+const REGISTER_SIMILARITY_THRESHOLD = 0.15;
+
 @Injectable()
 export class CompanyService {
   private readonly logger = new Logger(CompanyService.name);
@@ -149,9 +153,11 @@ export class CompanyService {
   // ── Latvia / Lithuania — Postgres pg_trgm (company_registry) ─────────────
 
   /**
-   * Hybrid trigram search: substring match (ILIKE, accelerated by the
-   * company_registry_name_trgm_idx GIN index) ranked by trigram similarity.
-   * Replaces the former Elasticsearch companies_lv / companies_lt indexes.
+   * Trigram search over the company_register table (pg_trgm). Uses the `%`
+   * similarity operator — GIN-accelerated by company_register_name_trgm_idx —
+   * with a tuned similarity threshold, ranked by similarity(). Replaces the
+   * former Elasticsearch companies_lv / companies_lt edge-ngram prefix indexes
+   * (now typo-tolerant fuzzy substring matching).
    */
   async searchRegistry(
     country: 'LV' | 'LT',
@@ -163,16 +169,22 @@ export class CompanyService {
     if (cached) return JSON.parse(cached) as CompanyResult[];
 
     try {
-      const like = `%${query}%`;
-      const rows = await this.prisma.$queryRaw<Array<Record<string, string | null>>>`
-        SELECT id, country, name, "regNumber", "vatNumber", "legalForm",
-               address, status, source
-        FROM company_registry
-        WHERE country = ${country}
-          AND name ILIKE ${like}
-        ORDER BY similarity(name, ${query}) DESC, name ASC
-        LIMIT ${limit}
-      `;
+      // SET LOCAL the trigram threshold for the `%` operator, then run the
+      // GIN-accelerated similarity search in the same transaction.
+      const rows = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(
+          `SET LOCAL pg_trgm.similarity_threshold = ${REGISTER_SIMILARITY_THRESHOLD}`,
+        );
+        return tx.$queryRaw<Array<Record<string, string | null>>>`
+          SELECT id, country, name, "regNumber", "vatNumber", "legalForm",
+                 address, status, source
+          FROM company_register
+          WHERE country = ${country}
+            AND name % ${query}
+          ORDER BY similarity(name, ${query}) DESC
+          LIMIT ${limit}
+        `;
+      });
 
       const results = rows.map<CompanyResult>((r) => ({
         id:        String(r.id),

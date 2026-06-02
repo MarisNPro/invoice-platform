@@ -79,7 +79,7 @@ cd apps/api && pnpm test:integration
 # API — run a single test file
 cd apps/api && pnpm test -- --testPathPattern=invoice-ubl
 
-# API — company registry sync (LV/LT CSV → Postgres company_registry, pg_trgm)
+# API — company register sync (LV/LT CSV → Postgres company_register, pg_trgm)
 cd apps/api && pnpm sync:lv
 cd apps/api && pnpm sync:lt
 
@@ -129,7 +129,7 @@ The `apps/worker` process consumes both queues. Queue constants are shared in `a
 Country-specific adapters in `CompanyService`:
 - **FI** — PRH open data API (live HTTP)
 - **EE** — Ariregister API (live HTTP)
-- **LV / LT** — Postgres `company_registry` table with a `pg_trgm` GIN index; hybrid `ILIKE` + `similarity()` search, pre-synced from government CSV via `sync:lv` / `sync:lt`
+- **LV / LT** — Postgres `company_register` table with a `pg_trgm` GIN index; `name % query` trigram similarity search, pre-synced from government CSV via `sync:lv` / `sync:lt`
 
 Redis caches all search results for 600 s. Cache key is normalised to lowercase.
 
