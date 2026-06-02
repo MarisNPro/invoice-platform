@@ -3,16 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bullmq';
 import { QUEUE_INVOICE_EMAIL } from './queue.constants';
 import type { SendInvoiceEmailJobData } from './queue.constants';
-
-function parseRedisUrl(url: string) {
-  const u = new URL(url);
-  return {
-    host: u.hostname,
-    port: Number(u.port) || 6379,
-    ...(u.password ? { password: decodeURIComponent(u.password) } : {}),
-    ...(u.pathname && u.pathname !== '/' ? { db: Number(u.pathname.slice(1)) } : {}),
-  };
-}
+import { buildBullConnection } from '../common/redis/redis-connection';
 
 @Injectable()
 export class MailQueueService implements OnModuleDestroy {
@@ -22,7 +13,7 @@ export class MailQueueService implements OnModuleDestroy {
   constructor(config: ConfigService) {
     const url = config.get<string>('REDIS_URL', 'redis://localhost:6379');
     this.queue = new Queue(QUEUE_INVOICE_EMAIL, {
-      connection: parseRedisUrl(url),
+      connection: buildBullConnection(url),
       defaultJobOptions: {
         attempts: 3,
         backoff:  { type: 'exponential', delay: 5_000 },
@@ -30,7 +21,15 @@ export class MailQueueService implements OnModuleDestroy {
         removeOnFail:     { count: 500 },
       },
     });
-    this.logger.log(`Queue "${QUEUE_INVOICE_EMAIL}" connected`);
+
+    // Never let a Redis connection error become an unhandled EventEmitter
+    // 'error' (which would crash the process). Connection is lazy/background;
+    // the API must boot and serve traffic even when Redis is unreachable.
+    this.queue.on('error', (err) =>
+      this.logger.error(`Queue "${QUEUE_INVOICE_EMAIL}" Redis error: ${err.message}`),
+    );
+
+    this.logger.log(`Queue "${QUEUE_INVOICE_EMAIL}" initialised (connecting in background)`);
   }
 
   async enqueueInvoiceEmail(data: SendInvoiceEmailJobData): Promise<string> {

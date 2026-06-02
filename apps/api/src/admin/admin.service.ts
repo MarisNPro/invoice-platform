@@ -12,6 +12,7 @@ import { Queue } from 'bullmq';
 import type Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { REDIS_CLIENT } from '../common/redis/redis.constants';
+import { buildBullConnection } from '../common/redis/redis-connection';
 import { ElasticsearchService } from '../common/elasticsearch/elasticsearch.service';
 import { PLAN_REVENUE_CENTS } from '../organisation/organisation.service';
 import type { UpdatePlanDto } from './dto/update-plan.dto';
@@ -28,16 +29,6 @@ const ADMIN_MIGRATION_UNAVAILABLE =
   'This will be restored with Supabase Admin API.';
 
 // ── Keycloak helpers ──────────────────────────────────────────────────────────
-
-function parseRedisUrl(url: string) {
-  const u = new URL(url);
-  return {
-    host: u.hostname,
-    port: Number(u.port) || 6379,
-    ...(u.password ? { password: decodeURIComponent(u.password) } : {}),
-    ...(u.pathname && u.pathname !== '/' ? { db: Number(u.pathname.slice(1)) } : {}),
-  };
-}
 
 async function measureMs<T>(fn: () => Promise<T>): Promise<{ result: T; ms: number }> {
   const t0 = Date.now();
@@ -411,10 +402,13 @@ export class AdminService {
       // BullMQ queue stats
       measureMs(async () => {
         const queueNames = ['invoice-email', 'dunning-scheduler', 'monthly-reset', 'company-sync'];
-        const conn       = parseRedisUrl(redisUrl);
+        const conn       = buildBullConnection(redisUrl);
         const stats = await Promise.all(
           queueNames.map(async (name) => {
             const q = new Queue(name, { connection: conn });
+            // Guard the EventEmitter: an unhandled 'error' here would crash the
+            // process instead of failing this one health probe.
+            q.on('error', () => undefined);
             const counts = await q.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed');
             await q.close();
             return { name, ...counts };

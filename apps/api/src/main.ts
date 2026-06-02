@@ -56,7 +56,9 @@ async function bootstrap() {
   });
 
   const config = app.get(ConfigService);
-  const port = config.get<number>('PORT', 4000);
+  // Railway/Coolify inject PORT as a string — coerce explicitly. Falls back to
+  // ConfigService/4000 for local dev.
+  const port = Number(process.env.PORT) || config.get<number>('PORT', 4000);
   const prefix = config.get<string>('API_GLOBAL_PREFIX', 'api/v1');
   const corsOrigins = config.get<string>('CORS_ORIGINS', 'http://localhost:3000').split(',');
 
@@ -78,11 +80,20 @@ async function bootstrap() {
     }),
   );
 
+  // Bind the HTTP server FIRST, independent of Redis/BullMQ. Redis connects
+  // lazily in the background (see RedisModule / MailQueueService); a Redis
+  // outage must degrade features, never prevent the server from binding.
   await app.listen(port, '0.0.0.0');
   logger.log(`🚀 API listening on http://0.0.0.0:${port}/${prefix}`);
   logger.log(`📋 Health: http://0.0.0.0:${port}/${prefix}/health`);
   logger.log(`🛡️  Helmet security headers: enabled`);
 }
+
+// Safety net: a background Redis/ioredis rejection (e.g. Upstash ECONNRESET)
+// must never crash an already-listening server. Log and keep serving.
+process.on('unhandledRejection', (reason) => {
+  new Logger('Process').error(`Unhandled promise rejection: ${String(reason)}`);
+});
 
 bootstrap().catch((err) => {
   const logger = new Logger('Bootstrap');
