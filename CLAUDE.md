@@ -6,20 +6,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Stack
 - NestJS + Fastify (API) · Next.js 14 (web) · BullMQ (worker)
-- PostgreSQL via Prisma · Redis (Upstash) · Elasticsearch
-- Supabase EU Frankfurt · Vercel · Hetzner/Coolify
+- PostgreSQL via Prisma · Redis (Upstash)
+- Hosting: **Supabase** (Postgres + Auth, Frankfurt) · **Vercel** (web, fra1) · **Railway** (API + worker, EU West)
+- Retired / do not reintroduce: **Keycloak**, **Hetzner + Coolify**, **AWS**. **Elasticsearch** is legacy (LV/LT company search only) and being phased out.
+- All data stays in the EU.
 
 ## Critical rules
-1. Every Prisma query MUST have where: { tenantId } — no exceptions
+1. Every Prisma query MUST have where: { tenantId } — no exceptions (sole documented exception: the global national company register)
 2. Never use console.log — use NestJS Logger
 3. All new endpoints need DTO with @IsString(), @IsUUID() etc
 4. Run pnpm turbo run typecheck after every change
 5. Test count must not decrease — add tests for new features
 
 ## Authentication (Supabase Auth)
-> Status: MIGRATION IN PROGRESS — code still runs on Keycloak as of 2026-05-30.
-> These are the governing rules for the in-flight Keycloak → Supabase Auth migration.
-- Provider: Supabase Auth (migrating away from Keycloak)
+> Status: Supabase Auth is the active provider (Phase 4 cutover). The API boots
+> Supabase-only; Keycloak is optional/legacy and being retired.
+- Provider: Supabase Auth (Keycloak retired)
 - JWT: validate Supabase JWT, extract user id and tenantId
 - EVERY endpoint validates the Supabase JWT (global guard; opt out only via @Public())
 - EVERY query still filters by tenantId — auth does NOT replace tenant isolation
@@ -111,10 +113,10 @@ infra/
 ## Architecture
 
 ### Multi-tenancy
-Every authenticated request carries a `tenant_id` claim in the Keycloak JWT. `KeycloakJwtGuard` (`apps/api/src/auth/keycloak-jwt.guard.ts`) extracts and attaches it to `request.user`. Every DB query must scope to `tenantId`. In development, skip Keycloak entirely by sending `x-dev-tenant-id: <uuid>` — this injects a synthetic admin user with all roles.
+Every authenticated request carries a `tenantId` claim in the validated JWT. `CompositeAuthGuard` (`apps/api/src/auth/composite-auth.guard.ts`) verifies the token and attaches the user to `request.user`. Every DB query must scope to `tenantId`. In development, skip auth entirely by sending `x-dev-tenant-id: <uuid>` — this injects a synthetic admin user with all roles.
 
 ### Auth
-`AuthModule` registers `KeycloakJwtGuard` and `RolesGuard` as global `APP_GUARD`s — all routes are protected by default. Add `@Public()` decorator to opt a route out. JWKS keys are fetched from Keycloak and cached 10 minutes.
+`AuthModule` registers `CompositeAuthGuard` and `RolesGuard` as global `APP_GUARD`s — all routes are protected by default. Add `@Public()` decorator to opt a route out. `CompositeAuthGuard` accepts a valid Supabase JWT (primary) or a legacy Keycloak JWT (retiring), then `RolesGuard` authorizes. JWKS keys are fetched from the provider and cached.
 
 ### Queue / Worker split
 The API enqueues jobs via `MailQueueService` (`apps/api/src/queue/queue.service.ts`) into two BullMQ queues:
@@ -159,5 +161,30 @@ Key variables: `DATABASE_URL`, `DIRECT_URL`, `REDIS_URL`, `ELASTICSEARCH_URL`, `
 ## Deployment
 
 - **Web** → Vercel (Frankfurt), root directory `apps/web`
-- **API + Worker** → Coolify on Hetzner CX32 (Falkenstein), via `infra/deploy/docker-compose.prod.yml`
+- **API on Railway (EU West); worker deployment pending** — API built from `apps/api/Dockerfile`, auto-deploys on push to `main`. Worker image is built (`apps/worker/Dockerfile`) but its Railway runtime is not yet confirmed.
 - **CI/CD** → GitHub Actions: typecheck → test → deploy-web → deploy-api on push to `main`
+
+---
+
+## Standing Rules & Expertise
+
+### Stack (current — do not reintroduce retired infra)
+- Hosting: **Supabase** (Postgres + Auth, Frankfurt) · **Vercel** (web, fra1) · **Railway** (API, EU West).
+- Hetzner + Coolify are being decommissioned. **Do not** suggest or reintroduce Keycloak, Coolify, Elasticsearch, or AWS.
+- All data stays in the EU.
+
+### Multi-tenancy is a security boundary
+- Every DB query MUST filter by `tenantId`. Treat tenant isolation as a security boundary, not a convention.
+- Exception: the 445k-row national company register is intentionally global (documented).
+- Never weaken auth or tenant scoping to fix an unrelated bug (e.g. CORS, build errors).
+
+### Security defaults
+- CORS: read allowed origins from `CORS_ORIGIN` (comma-separated). Allow `*.vercel.app` previews via regex. **Never** use `origin: "*"` together with `credentials: true`; reflect the matched origin instead.
+- No secrets in code. Read from env. Flag any hardcoded credential.
+
+### Patterns & compliance
+- Reuse existing patterns — check `apps/api/src/modules/` before writing new code.
+- EN 16931 compliance required for all invoice changes; Peppol BIS 3.0 for UBL XML output.
+
+### Process
+- Run the quality gate after every milestone (lint, test, build).
