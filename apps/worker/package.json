@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "build": "tsc",
+    "build": "prisma generate --schema=../api/prisma/schema.prisma && tsc",
     "dev": "ts-node --transpile-only src/main.ts",
     "start": "node dist/main.js",
     "lint": "eslint \"src/**/*.ts\"",
