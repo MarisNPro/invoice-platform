@@ -14,9 +14,12 @@ import type {
 
 const CACHE_TTL = 600; // seconds
 
-// pg_trgm similarity threshold for the `name % $query` operator. Lower than the
-// default 0.3 so short autocomplete fragments still match long company names.
-const REGISTER_SIMILARITY_THRESHOLD = 0.15;
+// pg_trgm word_similarity threshold for the `query <% name` operator. Unlike set
+// similarity(), word_similarity() scores the query against the best-matching
+// extent of the name and ignores the tail — so a prefix of a long name ranks
+// correctly for autocomplete instead of being penalised for its length. Sane
+// range 0.3–0.6.
+const REGISTER_WORD_SIMILARITY_THRESHOLD = 0.4;
 
 @Injectable()
 export class CompanyService {
@@ -153,11 +156,14 @@ export class CompanyService {
   // ── Latvia / Lithuania — Postgres pg_trgm (company_registry) ─────────────
 
   /**
-   * Trigram search over the company_register table (pg_trgm). Uses the `%`
-   * similarity operator — GIN-accelerated by company_register_name_trgm_idx —
-   * with a tuned similarity threshold, ranked by similarity(). Replaces the
-   * former Elasticsearch companies_lv / companies_lt edge-ngram prefix indexes
-   * (now typo-tolerant fuzzy substring matching).
+   * Word-similarity trigram search over the company_register table (pg_trgm).
+   * Uses the `query <% name` operator — GIN-accelerated by
+   * company_register_name_trgm_idx — ranked by word_similarity(query, name).
+   * word_similarity scores the query against the best-matching extent of the
+   * name (ignoring the tail), so typing a prefix of a long company name ranks it
+   * correctly for autocomplete (set similarity() would penalise its length).
+   * Replaces the former Elasticsearch companies_lv / companies_lt indexes
+   * (typo-tolerant).
    */
   async searchRegistry(
     country: 'LV' | 'LT',
@@ -169,19 +175,19 @@ export class CompanyService {
     if (cached) return JSON.parse(cached) as CompanyResult[];
 
     try {
-      // SET LOCAL the trigram threshold for the `%` operator, then run the
-      // GIN-accelerated similarity search in the same transaction.
+      // SET LOCAL the word_similarity threshold for the `<%` operator, then run
+      // the GIN-accelerated word-similarity search in the same transaction.
       const rows = await this.prisma.$transaction(async (tx) => {
         await tx.$executeRawUnsafe(
-          `SET LOCAL pg_trgm.similarity_threshold = ${REGISTER_SIMILARITY_THRESHOLD}`,
+          `SET LOCAL pg_trgm.word_similarity_threshold = ${REGISTER_WORD_SIMILARITY_THRESHOLD}`,
         );
         return tx.$queryRaw<Array<Record<string, string | null>>>`
           SELECT id, country, name, "regNumber", "vatNumber", "legalForm",
                  address, status, source
           FROM company_register
           WHERE country = ${country}
-            AND name % ${query}
-          ORDER BY similarity(name, ${query}) DESC
+            AND ${query} <% name
+          ORDER BY word_similarity(${query}, name) DESC
           LIMIT ${limit}
         `;
       });

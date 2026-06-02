@@ -46,8 +46,15 @@ describe('CompanyService.searchRegistry', () => {
 
     const res = await svc.searchRegistry('LV', 'acme', 10);
 
-    expect(tx.$executeRawUnsafe).toHaveBeenCalled(); // SET LOCAL threshold
+    // SET LOCAL the word_similarity threshold (not similarity_threshold)
+    expect(tx.$executeRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('pg_trgm.word_similarity_threshold'),
+    );
     expect(txQueryRaw).toHaveBeenCalledTimes(1);
+    // Parameterised tagged template uses the `<%` operator + word_similarity()
+    const sql = (txQueryRaw.mock.calls[0][0] as string[]).join(' ');
+    expect(sql).toContain('<%');
+    expect(sql).toContain('word_similarity(');
     expect(res).toEqual([
       {
         id: 'LV-40', country: 'LV', name: 'Acme SIA', regNumber: '40',

@@ -129,6 +129,11 @@ jobs:
       - name: Run tests
         run: pnpm turbo test
 
+      # Integration tests spin up their own Postgres via Testcontainers (Docker is
+      # available on ubuntu-latest). Covers the company_register pg_trgm search.
+      - name: Run integration tests (Testcontainers — real Postgres)
+        run: pnpm --filter @invoice/api test:integration
+
 # ── Job 3: Build and push API image → GHCR ─────────────────────────────────────
   build-api:
     name: Build API image

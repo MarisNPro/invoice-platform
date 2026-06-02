@@ -30,6 +30,10 @@ beforeEach(async () => {
       { id: 'LV-1', country: 'LV', regNumber: '1', name: 'Acme Latvia SIA', status: 'ACTIVE', source: 'test' },
       { id: 'LV-2', country: 'LV', regNumber: '2', name: 'Globex Holdings SIA', status: 'ACTIVE', source: 'test' },
       { id: 'LT-3', country: 'LT', regNumber: '3', name: 'Acme Lithuania UAB', status: 'ACTIVE', source: 'test' },
+      // Short + long name sharing the prefix "Latv" — the case set similarity()
+      // ranks wrong (long name penalised for its tail). word_similarity fixes it.
+      { id: 'LV-10', country: 'LV', regNumber: '10', name: 'Latva SIA', status: 'ACTIVE', source: 'test' },
+      { id: 'LV-11', country: 'LV', regNumber: '11', name: 'Latvijas Dzelzceļš AS', status: 'ACTIVE', source: 'test' },
     ],
   });
 });
@@ -55,6 +59,29 @@ describe('company_register pg_trgm search (integration)', () => {
   it('returns nothing for an unrelated query', async () => {
     const res = await service.searchRegistry('LV', 'Zzzzzz Quux', 10);
     expect(res).toHaveLength(0);
+  });
+
+  it('surfaces a long prefix-match near the top (word_similarity, not set similarity)', async () => {
+    // Dedicated data: just a short and a long name sharing the prefix "Latv".
+    await helper.truncateAll();
+    await helper.prisma.companyRegister.createMany({
+      data: [
+        { id: 'rk-1', country: 'LV', regNumber: 'rk-1', name: 'Latva SIA', status: 'ACTIVE', source: 'test' },
+        { id: 'rk-2', country: 'LV', regNumber: 'rk-2', name: 'Latvijas Dzelzceļš AS', status: 'ACTIVE', source: 'test' },
+      ],
+    });
+
+    const res = await service.searchRegistry('LV', 'Latv', 10);
+    const names = res.map((r) => r.name);
+
+    // word_similarity surfaces BOTH near the top. Under set similarity() the long
+    // name's uncovered tail tanks its score below the threshold and it gets
+    // dropped/buried — the exact regression this change fixes.
+    expect(names).toContain('Latva SIA');
+    expect(names).toContain('Latvijas Dzelzceļš AS');
+    const longIdx = names.indexOf('Latvijas Dzelzceļš AS');
+    expect(longIdx).toBeGreaterThanOrEqual(0);
+    expect(longIdx).toBeLessThanOrEqual(1); // top 2 — not buried below short names
   });
 
   it('upserts idempotently on the (country, regNumber) natural key', async () => {
