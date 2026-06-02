@@ -5,6 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { tenantExtension } from './tenant-extension';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -18,6 +19,14 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         { emit: 'event', level: 'error' },
       ],
     });
+
+    // Apply structural tenant isolation as a query extension. $extends returns a
+    // NEW client; returning it from the constructor makes `new PrismaService()`
+    // *be* the extended client, so every repository that injects PrismaService
+    // gets tenantId auto-injection with no per-repository changes. The base
+    // lifecycle methods ($connect/$disconnect/$on/$transaction) are preserved by
+    // the extended client.
+    return this.$extends(tenantExtension) as unknown as PrismaService;
   }
 
   async onModuleInit() {

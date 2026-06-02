@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { HttpModule } from '@nestjs/axios';
 import { TerminusModule } from '@nestjs/terminus';
@@ -19,6 +19,7 @@ import { ImportModule } from './import/import.module';
 import { ArchiveModule } from './archive/archive.module';
 import { RecurringInvoiceModule } from './recurring-invoice/recurring-invoice.module';
 import { FastifyThrottlerGuard } from './common/fastify-throttler.guard';
+import { TenantContextInterceptor } from './common/interceptors/tenant-context.interceptor';
 
 @Module({
   imports: [
@@ -67,6 +68,11 @@ import { FastifyThrottlerGuard } from './common/fastify-throttler.guard';
     {
       provide:  APP_GUARD,
       useClass: FastifyThrottlerGuard,
+    },
+    // Bind the authenticated tenant to the async context for Prisma injection
+    {
+      provide:  APP_INTERCEPTOR,
+      useClass: TenantContextInterceptor,
     },
   ],
 })
