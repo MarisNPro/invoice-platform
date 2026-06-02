@@ -161,8 +161,7 @@ Key variables: `DATABASE_URL`, `DIRECT_URL`, `REDIS_URL`, `ELASTICSEARCH_URL`, `
 ## Deployment
 
 - **Web** → Vercel (Frankfurt), root directory `apps/web`
-- **API on Railway (EU West); worker deployment pending** — API built from `apps/api/Dockerfile`, auto-deploys on push to `main`. Worker image is built (`apps/worker/Dockerfile`) but its Railway runtime is not yet confirmed.
-- **Worker:** no automated CI deploy until a Railway worker service exists. GHCR images still build; redeploy manually via Coolify until Hetzner teardown.
+- **API + Worker → Railway (EU West)** — both auto-deploy from `main` via Railway's GitHub integration (API built from `apps/api/Dockerfile`, worker from `apps/worker/Dockerfile`; Prisma generate runs before tsc). The worker is a BullMQ consumer with no public HTTP.
 - **CI/CD** → GitHub Actions: typecheck → test → deploy-web on push to `main`
 
 ---
