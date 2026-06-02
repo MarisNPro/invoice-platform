@@ -572,3 +572,25 @@ model RecurringInvoice {
   @@index([tenantId, isActive])
   @@map("recurring_invoices")
 }
+
+// ── Company registry (global LV/LT search index) ──────────────────────────────
+// Intentionally GLOBAL — NO tenantId. This is the ~445k-row national company
+// register (the documented exception to tenant scoping). Replaces the
+// Elasticsearch companies_lv / companies_lt indexes with Postgres pg_trgm search.
+// id = "LV-<regcode>" / "LT-<kodas>". The trigram GIN index on `name` is created
+// in the migration (raw SQL — not expressible in vanilla Prisma schema).
+model CompanyRegistry {
+  id        String   @id // "LV-<regcode>" / "LT-<kodas>"
+  country   String   @db.Char(2) // LV | LT
+  name      String
+  regNumber String
+  vatNumber String?
+  legalForm String?
+  address   String?
+  status    String   @default("ACTIVE")
+  source    String
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([country])
+  @@map("company_registry")
+}
