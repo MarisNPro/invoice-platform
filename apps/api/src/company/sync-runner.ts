@@ -12,7 +12,7 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { Logger, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ElasticsearchModule } from '../common/elasticsearch/elasticsearch.module';
+import { PrismaModule } from '../prisma/prisma.module';
 import { CompanySyncService } from './company-sync.service';
 
 @Module({
@@ -21,7 +21,7 @@ import { CompanySyncService } from './company-sync.service';
       isGlobal: true,
       envFilePath: ['../../.env.local', '../../.env', '.env'],
     }),
-    ElasticsearchModule,
+    PrismaModule,
   ],
   providers: [CompanySyncService],
 })

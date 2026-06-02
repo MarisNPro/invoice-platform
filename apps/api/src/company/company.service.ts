@@ -1,22 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
-import { ElasticsearchService } from '../common/elasticsearch/elasticsearch.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { InjectRedis } from '../common/redis/redis.decorators';
 import type Redis from 'ioredis';
 import { firstValueFrom } from 'rxjs';
 import type {
   CompanyResult,
-  CompanyDocument,
   CountryCode,
   PrhV3Response,
   AriregisterAutocompleteResponse,
 } from './company.types';
 
 const CACHE_TTL = 600; // seconds
-
-export const INDEX_LV = 'companies_lv';
-export const INDEX_LT = 'companies_lt';
 
 @Injectable()
 export class CompanyService {
@@ -27,7 +23,7 @@ export class CompanyService {
   constructor(
     private readonly http:   HttpService,
     private readonly config: ConfigService,
-    private readonly es:     ElasticsearchService,
+    private readonly prisma: PrismaService,
     @InjectRedis() private readonly redis: Redis,
   ) {
     this.prhUrl = config.get<string>('PRH_API_URL',         'https://avoindata.prh.fi/opendata-ytj-api/v3');
@@ -47,14 +43,14 @@ export class CompanyService {
     switch (country) {
       case 'FI': return this.searchFinland(q, limit);
       case 'EE': return this.searchEstonia(q, limit);
-      case 'LV': return this.searchElasticsearch(INDEX_LV, 'LV', q, limit);
-      case 'LT': return this.searchElasticsearch(INDEX_LT, 'LT', q, limit);
+      case 'LV': return this.searchRegistry('LV', q, limit);
+      case 'LT': return this.searchRegistry('LT', q, limit);
       default: {
         const [fi, ee, lv, lt] = await Promise.allSettled([
           this.searchFinland(q, limit),
           this.searchEstonia(q, limit),
-          this.searchElasticsearch(INDEX_LV, 'LV', q, limit),
-          this.searchElasticsearch(INDEX_LT, 'LT', q, limit),
+          this.searchRegistry('LV', q, limit),
+          this.searchRegistry('LT', q, limit),
         ]);
         return [
           ...(fi.status === 'fulfilled' ? fi.value : []),
@@ -150,11 +146,15 @@ export class CompanyService {
     }
   }
 
-  // ── Latvia / Lithuania — Elasticsearch ───────────────────────────────────
+  // ── Latvia / Lithuania — Postgres pg_trgm (company_registry) ─────────────
 
-  async searchElasticsearch(
-    index:   string,
-    country: string,
+  /**
+   * Hybrid trigram search: substring match (ILIKE, accelerated by the
+   * company_registry_name_trgm_idx GIN index) ranked by trigram similarity.
+   * Replaces the former Elasticsearch companies_lv / companies_lt indexes.
+   */
+  async searchRegistry(
+    country: 'LV' | 'LT',
     query:   string,
     limit:   number,
   ): Promise<CompanyResult[]> {
@@ -163,31 +163,33 @@ export class CompanyService {
     if (cached) return JSON.parse(cached) as CompanyResult[];
 
     try {
-      const indexExists = await this.es.indexExists(index);
-      if (!indexExists) return [];
+      const like = `%${query}%`;
+      const rows = await this.prisma.$queryRaw<Array<Record<string, string | null>>>`
+        SELECT id, country, name, "regNumber", "vatNumber", "legalForm",
+               address, status, source
+        FROM company_registry
+        WHERE country = ${country}
+          AND name ILIKE ${like}
+        ORDER BY similarity(name, ${query}) DESC, name ASC
+        LIMIT ${limit}
+      `;
 
-      const response = await this.es.search<CompanyDocument>({
-        index,
-        size: limit,
-        query: {
-          match: {
-            name: {
-              query,
-              analyzer: 'name_search_analyzer',
-            },
-          },
-        },
-        sort: [{ _score: { order: 'desc' } }],
-      });
-
-      const results = response.hits.hits
-        .filter((h) => h._source)
-        .map<CompanyResult>((h) => h._source as CompanyResult);
+      const results = rows.map<CompanyResult>((r) => ({
+        id:        String(r.id),
+        country:   String(r.country).trim(),
+        name:      String(r.name),
+        regNumber: String(r.regNumber),
+        vatNumber: r.vatNumber ?? undefined,
+        legalForm: r.legalForm ?? undefined,
+        address:   r.address   ?? undefined,
+        status:    String(r.status),
+        source:    String(r.source),
+      }));
 
       await this.redis.setex(cacheKey, CACHE_TTL, JSON.stringify(results));
       return results;
     } catch (err) {
-      this.logger.warn(`ES search [${index}] failed for "${query}": ${(err as Error).message}`);
+      this.logger.warn(`Registry search [${country}] failed for "${query}": ${(err as Error).message}`);
       return [];
     }
   }

@@ -7,12 +7,11 @@
  *
  * Indexes are created with an edge-ngram analyser for fast prefix autocomplete.
  */
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { ElasticsearchService } from '../common/elasticsearch/elasticsearch.service';
+import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
 import { parse as csvParse } from 'csv-parse';
 import axios from 'axios';
-import { INDEX_LV, INDEX_LT } from './company.service';
 import type { CompanyDocument } from './company.types';
 
 const BATCH_SIZE = 2_000;
@@ -24,53 +23,6 @@ const LV_VAT_CSV =
   'https://data.gov.lv/dati/dataset/9a5eae1c-2438-48cf-854b-6a2c170f918f/resource/610910e9-e086-4c5b-a7ea-0a896a697672/download/pdb_pvnmaksataji_odata.csv';
 const LT_API_BASE =
   'https://get.data.gov.lt/datasets/gov/rc/jar/iregistruoti/JuridinisAsmuo/';
-
-// ── Edge-ngram index settings (shared between LV and LT) ─────────────────
-
-const INDEX_SETTINGS = {
-  settings: {
-    analysis: {
-      tokenizer: {
-        edge_ngram_tokenizer: {
-          type:        'edge_ngram',
-          min_gram:    2,
-          max_gram:    20,
-          token_chars: ['letter', 'digit', 'whitespace'],
-        },
-      },
-      analyzer: {
-        name_index_analyzer: {
-          type:      'custom',
-          tokenizer: 'edge_ngram_tokenizer',
-          filter:    ['lowercase', 'asciifolding'],
-        },
-        name_search_analyzer: {
-          type:      'custom',
-          tokenizer: 'standard',
-          filter:    ['lowercase', 'asciifolding'],
-        },
-      },
-    },
-  },
-  mappings: {
-    properties: {
-      id:        { type: 'keyword' },
-      country:   { type: 'keyword' },
-      name: {
-        type:            'text',
-        analyzer:        'name_index_analyzer',
-        search_analyzer: 'name_search_analyzer',
-        fields: { keyword: { type: 'keyword' } },
-      },
-      regNumber:  { type: 'keyword' },
-      vatNumber:  { type: 'keyword' },
-      legalForm:  { type: 'keyword' },
-      address:    { type: 'text' },
-      status:     { type: 'keyword' },
-      source:     { type: 'keyword' },
-    },
-  },
-};
 
 // ── Row shapes ────────────────────────────────────────────────────────────
 
@@ -101,31 +53,30 @@ interface LtRow {
 }
 
 @Injectable()
-export class CompanySyncService implements OnModuleInit {
+export class CompanySyncService {
   private readonly logger = new Logger(CompanySyncService.name);
 
-  constructor(
-    private readonly config: ConfigService,
-    private readonly es:     ElasticsearchService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  // ── Bootstrap: create indexes if missing ─────────────────────────────────
+  // ── Batch upsert into company_registry (pg_trgm) ─────────────────────────
 
-  async onModuleInit() {
-    await this.ensureIndex(INDEX_LV);
-    await this.ensureIndex(INDEX_LT);
-  }
-
-  private async ensureIndex(index: string) {
-    try {
-      const exists = await this.es.indexExists(index);
-      if (!exists) {
-        await this.es.createIndex(index, INDEX_SETTINGS as Parameters<typeof this.es.createIndex>[1]);
-        this.logger.log(`Created ES index "${index}"`);
-      }
-    } catch (err) {
-      this.logger.warn(`Could not ensure index "${index}": ${(err as Error).message}`);
-    }
+  private async upsertCompanies(rows: CompanyDocument[]): Promise<void> {
+    if (!rows.length) return;
+    const values = rows.map(
+      (c) => Prisma.sql`(${c.id}, ${c.country}, ${c.name}, ${c.regNumber}, ${c.vatNumber ?? null}, ${c.legalForm ?? null}, ${c.address ?? null}, ${c.status}, ${c.source})`,
+    );
+    await this.prisma.$executeRaw`
+      INSERT INTO company_registry (id, country, name, "regNumber", "vatNumber", "legalForm", address, status, source)
+      VALUES ${Prisma.join(values)}
+      ON CONFLICT (id) DO UPDATE SET
+        name        = EXCLUDED.name,
+        "vatNumber" = EXCLUDED."vatNumber",
+        "legalForm" = EXCLUDED."legalForm",
+        address     = EXCLUDED.address,
+        status      = EXCLUDED.status,
+        source      = EXCLUDED.source,
+        "updatedAt" = CURRENT_TIMESTAMP
+    `;
   }
 
   // ── Latvia sync ───────────────────────────────────────────────────────────
@@ -142,8 +93,7 @@ export class CompanySyncService implements OnModuleInit {
 
     const upsertBatch = async () => {
       if (!batch.length) return;
-      const ops = ElasticsearchService.buildBulkUpsert(INDEX_LV, batch);
-      await this.es.bulk(ops);
+      await this.upsertCompanies(batch);
       indexed += batch.length;
       batch = [];
     };
@@ -241,8 +191,7 @@ export class CompanySyncService implements OnModuleInit {
       }
 
       if (batch.length) {
-        const ops = ElasticsearchService.buildBulkUpsert(INDEX_LT, batch);
-        await this.es.bulk(ops);
+        await this.upsertCompanies(batch);
         indexed += batch.length;
       }
 

@@ -13,7 +13,6 @@ import type Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { REDIS_CLIENT } from '../common/redis/redis.constants';
 import { buildBullConnection } from '../common/redis/redis-connection';
-import { ElasticsearchService } from '../common/elasticsearch/elasticsearch.service';
 import { PLAN_REVENUE_CENTS } from '../organisation/organisation.service';
 import type { UpdatePlanDto } from './dto/update-plan.dto';
 import type { UpdateVatRateDto } from './dto/update-vat-rate.dto';
@@ -45,7 +44,6 @@ export class AdminService {
   constructor(
     private readonly prisma:  PrismaService,
     private readonly config:  ConfigService,
-    private readonly es:      ElasticsearchService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
@@ -363,9 +361,8 @@ export class AdminService {
     const kcUrl    = this.config.get('KEYCLOAK_URL',  'http://localhost:8080');
     const minioUrl = this.config.get('S3_ENDPOINT',   'http://localhost:9000');
     const redisUrl = this.config.get('REDIS_URL',     'redis://localhost:6379');
-    const esIndex  = this.config.get('ELASTICSEARCH_INDEX_COMPANIES', 'companies');
 
-    const [postgres, redis, elasticsearch, keycloak, minio, bullmq] = await Promise.all([
+    const [postgres, redis, keycloak, minio, bullmq] = await Promise.all([
       // Postgres
       measureMs(async () => {
         await this.prisma.$queryRaw`SELECT 1`;
@@ -377,15 +374,6 @@ export class AdminService {
         const pong = await this.redis.ping();
         return { status: pong === 'PONG' ? 'up' as const : 'degraded' as const };
       }).catch(() => ({ result: { status: 'down' as const }, ms: -1 })),
-
-      // Elasticsearch
-      measureMs(async () => {
-        const { body } = await this.es.client.cat.indices({ index: esIndex, format: 'json' }).catch(() => ({ body: [] })) as { body: Array<{ 'docs.count'?: string }> };
-        const docs     = body as Array<{ 'docs.count'?: string }>;
-        const count    = Number(docs[0]?.['docs.count'] ?? 0);
-        await this.es.client.cluster.health();
-        return { status: 'up' as const, documents: count };
-      }).catch(() => ({ result: { status: 'down' as const, documents: 0 }, ms: -1 })),
 
       // Keycloak
       measureMs(async () => {
@@ -422,7 +410,6 @@ export class AdminService {
     const statuses: ServiceStatus[] = [
       postgres.result.status,
       redis.result.status,
-      elasticsearch.result.status,
       keycloak.result.status,
       minio.result.status,
     ];
@@ -434,7 +421,6 @@ export class AdminService {
     return {
       postgres:      { ...postgres.result,      responseMs: postgres.ms },
       redis:         { ...redis.result,         responseMs: redis.ms },
-      elasticsearch: { ...elasticsearch.result, responseMs: elasticsearch.ms },
       keycloak:      { ...keycloak.result,      responseMs: keycloak.ms },
       minio:         { ...minio.result,         responseMs: minio.ms },
       bullmq:        { ...bullmq.result,        responseMs: bullmq.ms },

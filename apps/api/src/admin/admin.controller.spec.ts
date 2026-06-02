@@ -119,7 +119,6 @@ describe('AdminController', () => {
     const healthFixture = {
       postgres:      { status: 'up' as const,   responseMs: 3  },
       redis:         { status: 'up' as const,   responseMs: 1  },
-      elasticsearch: { status: 'up' as const,   responseMs: 12, documents: 100 },
       keycloak:      { status: 'up' as const,   responseMs: 45 },
       minio:         { status: 'up' as const,   responseMs: 20 },
       bullmq: {
