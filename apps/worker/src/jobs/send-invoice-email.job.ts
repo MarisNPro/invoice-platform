@@ -6,19 +6,13 @@ import { EmailService } from '../email/email.service';
 import { prisma } from '../prisma';
 import { QUEUE_CLOUD_ARCHIVE_SYNC, JobName } from './job.constants';
 import type { SendInvoiceEmailJobData } from './job.constants';
+import { buildBullConnection } from '../redis-connection';
 
-// Module-level archive sync queue — created once, reused across jobs
-function parseRedisUrl(url: string) {
-  const u = new URL(url);
-  return {
-    host: u.hostname,
-    port: Number(u.port) || 6379,
-    ...(u.password ? { password: decodeURIComponent(u.password) } : {}),
-    ...(u.pathname && u.pathname !== '/' ? { db: Number(u.pathname.slice(1)) } : {}),
-  };
-}
+// Module-level archive sync queue — created once, reused across jobs.
+// buildBullConnection enables TLS for rediss:// (Upstash) and the BullMQ-safe
+// retry options.
 const archiveSyncQueue = new Queue(QUEUE_CLOUD_ARCHIVE_SYNC, {
-  connection: parseRedisUrl(process.env['REDIS_URL'] ?? 'redis://localhost:6379'),
+  connection: buildBullConnection(process.env['REDIS_URL'] ?? 'redis://localhost:6379'),
 });
 
 const logger      = new Logger('SendInvoiceEmailJob');

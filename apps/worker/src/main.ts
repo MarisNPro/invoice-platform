@@ -23,41 +23,47 @@ import {
 } from './jobs/job.constants';
 import { archiveSyncProcessor }           from './jobs/archive-sync.job';
 import type { SendInvoiceEmailJobData } from './jobs/job.constants';
+import { buildBullConnection } from './redis-connection';
 
 const logger = new Logger('Worker');
 
 const REDIS_URL = process.env['REDIS_URL'] ?? 'redis://localhost:6379';
 const CONCURRENCY = Number(process.env['WORKER_CONCURRENCY'] ?? 5);
 
-/** Parse redis://[[user]:pass@]host[:port][/db] into BullMQ connection options */
-function parseRedisUrl(url: string) {
-  const u = new URL(url);
-  return {
-    host: u.hostname,
-    port: Number(u.port) || 6379,
-    ...(u.password ? { password: decodeURIComponent(u.password) } : {}),
-    ...(u.pathname && u.pathname !== '/' ? { db: Number(u.pathname.slice(1)) } : {}),
-  };
-}
+// Paused until ticket B replaces the Elasticsearch company sync with Postgres
+// trigram search. Off by default so the worker never dials Elasticsearch on the
+// Supabase/Railway stack; flip to 'true' (or remove this gate) when B lands.
+const COMPANY_SYNC_ENABLED = (process.env['COMPANY_SYNC_ENABLED'] ?? 'false') === 'true';
 
-const connection = parseRedisUrl(REDIS_URL);
+// TLS for rediss:// + BullMQ-required maxRetriesPerRequest:null + Upstash-safe
+// ready check + reconnect backoff. See ./redis-connection.
+const connection = buildBullConnection(REDIS_URL);
 
 async function main() {
   logger.log('starting…');
 
   // ── Company sync queue ────────────────────────────────────────────────────
-  const syncQueue = new Queue(QUEUE_COMPANY_SYNC, { connection });
-  await registerRepeatableJobs(syncQueue);
+  // Paused (Elasticsearch-backed) until ticket B switches it to Postgres trigram.
+  // While disabled we neither register the nightly LV/LT repeatables nor consume
+  // the queue, so this worker never reaches Elasticsearch.
+  let syncQueue: Queue | undefined;
+  let syncWorker: Worker | undefined;
+  if (COMPANY_SYNC_ENABLED) {
+    syncQueue = new Queue(QUEUE_COMPANY_SYNC, { connection });
+    await registerRepeatableJobs(syncQueue);
 
-  const syncWorker = new Worker(
-    QUEUE_COMPANY_SYNC,
-    companySyncProcessor,
-    { connection, concurrency: CONCURRENCY, removeOnComplete: { count: 100 }, removeOnFail: { count: 500 } },
-  );
+    syncWorker = new Worker(
+      QUEUE_COMPANY_SYNC,
+      companySyncProcessor,
+      { connection, concurrency: CONCURRENCY, removeOnComplete: { count: 100 }, removeOnFail: { count: 500 } },
+    );
 
-  syncWorker.on('completed', (job) => logger.log(`✓ ${job.name} (${job.id}) completed`));
-  syncWorker.on('failed',    (job, err) => logger.error(`✗ ${job?.name} (${job?.id}) failed: ${err.message}`));
-  syncWorker.on('error',     (err) => logger.error(`sync worker error: ${err.message}`));
+    syncWorker.on('completed', (job) => logger.log(`✓ ${job.name} (${job.id}) completed`));
+    syncWorker.on('failed',    (job, err) => logger.error(`✗ ${job?.name} (${job?.id}) failed: ${err.message}`));
+    syncWorker.on('error',     (err) => logger.error(`sync worker error: ${err.message}`));
+  } else {
+    logger.warn('company-sync paused (COMPANY_SYNC_ENABLED!=true) — pending ticket B (ES → Postgres trigram)');
+  }
 
   // ── Invoice email queue ───────────────────────────────────────────────────
   const emailQueue = new Queue(QUEUE_INVOICE_EMAIL, { connection });
@@ -155,9 +161,9 @@ async function main() {
   const shutdown = async (signal: string) => {
     logger.log(`${signal} received, shutting down…`);
     await Promise.all([
-      syncWorker.close(),       emailWorker.close(),    resetWorker.close(),
+      syncWorker?.close(),      emailWorker.close(),    resetWorker.close(),
       dunningWorker.close(),    archiveWorker.close(),  recurringWorker.close(),
-      syncQueue.close(),        emailQueue.close(),     resetQueue.close(),
+      syncQueue?.close(),       emailQueue.close(),     resetQueue.close(),
       dunningQueue.close(),     archiveQueue.close(),   recurringQueue.close(),
     ]);
     process.exit(0);
