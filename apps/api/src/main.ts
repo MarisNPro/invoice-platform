@@ -60,12 +60,28 @@ async function bootstrap() {
   // ConfigService/4000 for local dev.
   const port = Number(process.env.PORT) || config.get<number>('PORT', 4000);
   const prefix = config.get<string>('API_GLOBAL_PREFIX', 'api/v1');
-  const corsOrigins = config.get<string>('CORS_ORIGINS', 'http://localhost:3000').split(',');
+  // Allowed origins are env-driven: CORS_ORIGIN is a comma-separated list of
+  // exact origins. Vercel preview deployments (*.vercel.app) are matched by
+  // regex. Defaults to localhost:3000 for local dev when CORS_ORIGIN is unset.
+  const allowedOrigins = config
+    .get<string>('CORS_ORIGIN', 'http://localhost:3000')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  const vercelPreview = /^https:\/\/.*\.vercel\.app$/;
 
   app.setGlobalPrefix(prefix);
 
   app.enableCors({
-    origin: corsOrigins,
+    // Reflect the matched origin (never "*") so credentialed requests work.
+    origin: (origin: string | undefined, callback: (err: Error | null, allow: boolean) => void) => {
+      // No Origin header → non-browser client (curl, server-to-server); allow.
+      if (!origin || allowedOrigins.includes(origin) || vercelPreview.test(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`Origin ${origin} not allowed by CORS`), false);
+    },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-dev-tenant-id'],
     credentials: true,
