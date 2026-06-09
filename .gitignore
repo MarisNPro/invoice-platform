@@ -2,6 +2,7 @@
 node_modules/
 .pnp
 .pnp.js
+.pnpm-store/
 
 # Build outputs
 dist/
@@ -44,3 +45,6 @@ coverage/
 # Docker volumes (if stored locally)
 .docker-data/
 test-invoice.*
+
+# Claude Code local state (agents/commands are tracked; runtime locks are not)
+.claude/*.lock
