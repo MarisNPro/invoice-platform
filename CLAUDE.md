@@ -161,7 +161,7 @@ Key variables: `DATABASE_URL`, `DIRECT_URL`, `REDIS_URL`, `SUPABASE_URL` (drives
 ## Deployment
 
 - **Web** → Vercel (Frankfurt), root directory `apps/web`
-- **API + Worker** → Railway (EU West), config-as-code in `railway.api.json` / `railway.worker.json` (DOCKERFILE builder). Both auto-deploy on push to `main`; API healthcheck `/api/v1/health`. (Hetzner + Coolify retired — do not reintroduce.)
+- **API + Worker → Railway (EU West)** — config-as-code in `railway.api.json` / `railway.worker.json` (DOCKERFILE builder). Both auto-deploy from `main` via Railway's GitHub integration (Prisma generate runs before tsc). API healthcheck `/api/v1/health`; the worker is a BullMQ consumer with no public HTTP. (Hetzner + Coolify retired — do not reintroduce.)
 - **CI/CD** → GitHub Actions: lint → test → build API + Worker images (GHCR, tagged `:latest` + `:${{ github.sha }}` for rollback) → deploy-web (Vercel) on push to `main`. Railway deploys the API + worker itself on push.
 
 ---
