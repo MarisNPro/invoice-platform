@@ -17,8 +17,8 @@
   - Turborepo + pnpm monorepo (4 apps + 7 packages)
   - Docker Compose (8 services, all healthy)
   - Prisma schema (25 models, EN 16931-aligned) + atomic `next_invoice_number()`
-  - Keycloak JWT guard + RBAC + multi-company scaffold
-  - Company search foundations (FI/EE live, LV/LT Elasticsearch sync)
+  - JWT guard + RBAC + multi-company scaffold *(originally Keycloak; since cut over to Supabase Auth)*
+  - Company search foundations (FI/EE live; LV/LT *originally Elasticsearch, since replaced by Postgres `pg_trgm`*)
 - **Tests added:** 0 → **0 cumulative** *(infrastructure sprint; feature tests begin Sprint 2)*
 - **Quality gate:** No formal gate (pre-feature setup)
 - **Velocity:** 21 pts
@@ -81,13 +81,15 @@
 - **Completed so far:**
   - Supabase EU Frankfurt — 15 migrations applied, 19 tables ✅
   - Upstash Redis Frankfurt connected ✅
-  - Hetzner CPX22 (`167.233.19.5`) + Coolify 4.1.1 + GitHub App ✅
-  - API + Worker images built & pushed to GHCR ✅
-  - CI/CD: Lint ✅ Test ✅ Build API ✅ Build Worker ✅
+  - **Migrated off Hetzner/Coolify → Railway** (config-as-code: `railway.api.json`, `railway.worker.json`) ✅
+  - **Supabase Auth** cutover (Keycloak retired to a migration-only fallback) ✅
+  - **Elasticsearch removed** — LV/LT search on Postgres `pg_trgm` ✅
+  - API + Worker images built & pushed to GHCR (`:latest` + `:${{ github.sha }}`) ✅
+  - CI/CD: Lint ✅ Test ✅ Build API ✅ Build Worker ✅; deploy hardened (R-06) ✅
+  - Security hardening: secret fail-fast (US-006), tenant-scope fix (US-007), AES-256-GCM tokens (US-008) ✅
 - **Pending:**
-  - Coolify env vars complete (⚠️ partial; `ANTHROPIC_API_KEY` ❌; security secrets pending)
+  - Set Railway env vars on api + worker (`ANTHROPIC_API_KEY`, strong `IMPERSONATION_SECRET` / `ARCHIVE_ENCRYPTION_KEY`) ❌
   - Vercel connection + frontend deploy ❌
-  - Keycloak production config ❌ (deferred to backlog)
   - Smoke tests + first beta invite ❌
 - **Tests added:** 111 → **121 cumulative**
 - **Quality gate:** ⏳ Pending (sprint open)

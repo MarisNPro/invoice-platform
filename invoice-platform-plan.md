@@ -1,7 +1,14 @@
 # Invoice Platform — Master Plan
 **Last updated:** 2026-05-29  
 **Status:** Phase 1 — Week 8 in progress — production deployment (~98% of Phase 1 complete)  
-**Stack:** Turborepo · NestJS · Next.js 14 · PostgreSQL (Supabase) · Elasticsearch · Keycloak *(deferred to backlog)* · Vercel · Hetzner/Coolify
+**Stack:** Turborepo · NestJS · Next.js 14 · PostgreSQL (Supabase) · Postgres `pg_trgm` search · Supabase Auth · Vercel · Railway
+
+> ⚠️ **Historical document.** This master plan records the original Phase-1 design.
+> The stack has since changed: **Supabase Auth** replaced Keycloak, **Postgres
+> `pg_trgm`** replaced Elasticsearch, and **Railway** replaced Hetzner + Coolify.
+> Keycloak, Hetzner/Coolify, Elasticsearch, and AWS are **retired — do not
+> reintroduce.** `CLAUDE.md` is the authoritative source for the current stack;
+> where the body below disagrees with it, CLAUDE.md wins.
 
 ---
 

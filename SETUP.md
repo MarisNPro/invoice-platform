@@ -1,8 +1,13 @@
 # Invoice Platform — Production Setup Guide
 
-Full end-to-end setup for deploying the EU invoice platform.  
-**Estimated time:** ~2 hours from zero to live.  
-**Estimated cost:** ~$62/month.
+Full end-to-end setup for deploying the EU invoice platform.
+**Estimated time:** ~1.5 hours from zero to live.
+
+> **Current stack** (authoritative: `CLAUDE.md`):
+> **Supabase** (Postgres + Auth, Frankfurt) · **Upstash Redis** (Frankfurt) ·
+> **Vercel** (web, fra1) · **Railway** (API + worker, EU West) · **Resend** (email).
+> LV/LT company search is Postgres `pg_trgm` (no Elasticsearch).
+> **Retired — do not reintroduce:** Keycloak, Hetzner + Coolify, Elasticsearch, AWS.
 
 ---
 
@@ -16,51 +21,43 @@ Full end-to-end setup for deploying the EU invoice platform.
                              ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │              VERCEL  (Frankfurt — fra1 region)                      │
-│              Next.js 14 App Router  ·  CDN edge                    │
+│              Next.js App Router  ·  CDN edge                       │
 │              apps/web  —  app.yourdomain.com                        │
 └────────────┬────────────────────────────────────────────────────────┘
-             │ REST /api/v1                    │ OIDC (Keycloak)
-             ▼                                 ▼
-┌────────────────────────┐       ┌─────────────────────────┐
-│  HETZNER CX32 (Coolify)│       │  KEYCLOAK 24             │
-│  Falkenstein DC        │       │  Coolify service         │
-│                        │       │  auth.yourdomain.com     │
-│  ┌──────────────────┐  │       └─────────────────────────┘
-│  │  API  :4000      │  │
-│  │  (NestJS+Fastify)│◄─┼─── Supabase PG (pooled)
-│  └────────┬─────────┘  │       (EU Frankfurt)
-│           │            │
-│  ┌────────▼─────────┐  │◄──── Upstash Redis (EU Frankfurt)
-│  │  Worker          │  │
-│  │  (BullMQ)        │  │◄──── Hetzner Object Storage FSN1
+             │ REST /api/v1            │ Supabase Auth (JWT/JWKS)
+             ▼                         ▼
+┌────────────────────────┐    ┌─────────────────────────┐
+│  RAILWAY  (EU West)    │    │  SUPABASE  (Frankfurt)  │
+│                        │    │  Postgres + Auth        │
+│  ┌──────────────────┐  │◄───┤  (pooled :6543)         │
+│  │  API  :4000      │  │    └─────────────────────────┘
+│  │  (NestJS+Fastify)│  │◄──── Upstash Redis (EU Frankfurt)
 │  └────────┬─────────┘  │
-│           │            │◄──── Resend (email)
-│  ┌────────▼─────────┐  │
-│  │  Elasticsearch 8 │  │
-│  │  (companies idx) │  │
+│           │            │◄──── S3-compatible object storage
+│  ┌────────▼─────────┐  │       (Supabase Storage / compatible)
+│  │  Worker          │  │
+│  │  (BullMQ)        │  │◄──── Resend (email)
 │  └──────────────────┘  │
+│   LV/LT search: Postgres pg_trgm (company_register table)
 └────────────────────────┘
 ```
 
 ---
 
-## Monthly Cost Breakdown (~$62/mo)
+## Monthly Cost Breakdown (approximate)
 
 | Service | Plan | Region | Cost |
 |---|---|---|---|
-| **Supabase** | Pro | EU Frankfurt | $25/mo |
+| **Supabase** | Pro (Postgres + Auth) | EU Frankfurt | $25/mo |
 | **Vercel** | Pro | fra1 | $20/mo |
-| **Hetzner CX32** | 4 vCPU · 8 GB RAM · 80 GB SSD | Falkenstein | $14.16/mo |
-| **Hetzner Object Storage** | 1 TB | FSN1 | $5.93/mo |
+| **Railway** | Usage-based (API + worker) | EU West | ~$5–20/mo |
 | **Upstash Redis** | Pay-as-you-go | EU (Frankfurt) | ~$1–3/mo |
 | **Resend** | Starter (3k/mo free) | — | $0/mo |
-| **Total** | | | **~$66–68/mo** |
-
-> Scale down to Hetzner CX22 ($6/mo) for early stage → saves ~$8.
+| **Total** | | | **~$50–70/mo** |
 
 ---
 
-## Step 1 — Supabase (PostgreSQL)
+## Step 1 — Supabase (PostgreSQL + Auth)
 
 1. Go to **[app.supabase.com](https://app.supabase.com)** → New project
 2. **Name:** `invoice-platform`
@@ -69,9 +66,14 @@ Full end-to-end setup for deploying the EU invoice platform.
 5. After provisioning, go to **Settings → Database**:
    - Copy **Transaction pooler** URL (port 6543) → `DATABASE_URL`
    - Copy **Session pooler** URL (port 5432) → `DIRECT_URL`
-6. Enable **pg_crypt** extension: SQL Editor → `CREATE EXTENSION IF NOT EXISTS pgcrypto;`
+6. Enable pgcrypto: SQL Editor → `CREATE EXTENSION IF NOT EXISTS pgcrypto;`
+7. **Auth:** Settings → API → copy the **Project URL** → `SUPABASE_URL`. The API
+   derives the JWT issuer (`${SUPABASE_URL}/auth/v1`) and JWKS endpoint from it
+   (`apps/api/src/auth/supabase-jwt.guard.ts`). Configure providers/redirect URLs
+   under **Authentication → URL Configuration**.
 
-> Supabase Pro includes point-in-time recovery, daily backups, and the Frankfurt region.
+> Supabase Pro includes point-in-time recovery, daily backups, the Frankfurt
+> region, and the Auth service — there is no separate auth server to run.
 
 ---
 
@@ -81,60 +83,57 @@ Full end-to-end setup for deploying the EU invoice platform.
 2. **Name:** `invoice-platform`
 3. **Type:** Regional · **Region:** `eu-west-1 (Frankfurt)`
 4. **TLS:** enabled
-5. Copy **UPSTASH_REDIS_REST_URL** → convert to `rediss://default:token@host:6380`  
-   OR use the **ioredis** connection string from the Connect tab directly.
+5. Copy the **ioredis** connection string (`rediss://default:token@host:6380`) → `REDIS_URL`
 
 ---
 
-## Step 3 — Hetzner Server (Coolify)
+## Step 3 — Railway (API + Worker)
 
-### 3a. Create server
+The API and worker deploy from their Dockerfiles via config-as-code checked into
+the repo: [`railway.api.json`](railway.api.json) and
+[`railway.worker.json`](railway.worker.json) (both use the `DOCKERFILE` builder).
 
-1. **[console.hetzner.com](https://console.hetzner.com)** → Servers → Add Server
-2. **Location:** Falkenstein (FSN1)
-3. **Image:** Ubuntu 22.04 LTS
-4. **Type:** CX32 (4 vCPU · 8 GB · $14.16/mo) — or CX22 for early stage
-5. **SSH keys:** add your public key
-6. **Firewall:** allow 22 (SSH), 80 (HTTP), 443 (HTTPS), 8000 (Coolify UI)
+### 3a. Create the project + services
 
-### 3b. Install Coolify
+1. **[railway.app](https://railway.app)** → New Project → Deploy from GitHub repo
+2. Authorize the repo, then create **two services** from it:
+   - **api** — config: `railway.api.json` (Dockerfile `apps/api/Dockerfile`,
+     healthcheck `/api/v1/health`)
+   - **worker** — config: `railway.worker.json` (Dockerfile `apps/worker/Dockerfile`)
+3. Set the region to **EU West** for both services.
 
-SSH into the server and run the one-liner:
+### 3b. Environment variables
 
-```bash
-curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
-```
+Set the variables from [`infra/deploy/.env.production.example`](infra/deploy/.env.production.example)
+on **both** services in the Railway dashboard (Variables tab). At minimum:
+`DATABASE_URL`, `DIRECT_URL`, `REDIS_URL`, `SUPABASE_URL`, `CORS_ORIGIN`,
+`NODE_ENV=production`, the security secrets below, and `ANTHROPIC_API_KEY`.
 
-Coolify installs Docker, sets up Traefik (reverse proxy), and starts the Coolify UI on port 8000.
+> **Security secrets (required in production).** The API and worker **refuse to
+> boot** in production with the insecure dev defaults (see
+> `apps/api/src/config/secret-guard.ts`). Generate strong values:
+> ```
+> IMPERSONATION_SECRET=$(openssl rand -hex 32)   # API only
+> ARCHIVE_ENCRYPTION_KEY=$(openssl rand -hex 32) # API + worker (must match)
+> ```
+> Before setting `ARCHIVE_ENCRYPTION_KEY`, confirm there are no existing
+> `cloud_archives` rows — rotating it invalidates already-stored OAuth tokens.
 
-### 3c. Configure Coolify
+### 3c. Deploys
 
-1. Browse to `http://<server-ip>:8000` → create admin account
-2. **Settings → Domain:** set `coolify.yourdomain.com` (point DNS first)
-3. **GitHub:** Settings → Source → Add GitHub App → authorize repo access
-4. **GitHub Actions integration:** Settings → API → Create API token (for webhook)
-
-### 3d. Add services in Coolify
-
-Add each of these as a **Docker Compose** service, pointing to the repo:
-
-| Service | Compose file | Port |
-|---|---|---|
-| API | `infra/deploy/docker-compose.prod.yml` | 4000 |
-| Keycloak | separate compose | 8080 |
-
-Set environment variables from `infra/deploy/.env.production.example` in Coolify's env editor.
+Both services auto-deploy on push to `main`. On startup the API container runs
+`prisma migrate deploy` before binding. The HTTP server binds independently of
+Redis so an Upstash blip never blocks boot.
 
 ---
 
-## Step 4 — Hetzner Object Storage
+## Step 4 — Object storage (optional)
 
-1. **console.hetzner.com** → Object Storage → Create bucket
-2. **Location:** Falkenstein (FSN1)
-3. **Name:** `invoice-platform-prod`
-4. **Access:** Private
-5. Create **Access Keys**: Object Storage → Access Keys → Generate Key Pair
-6. Note the endpoint: `https://fsn1.your-objectstorage.com`
+If you use S3-compatible storage for attachments/archives, set `S3_ENDPOINT`,
+`S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_REGION` to a provider that
+keeps data in the EU (e.g. Supabase Storage's S3-compatible endpoint). Cloud
+archive to GDrive/Dropbox/OneDrive is configured per-tenant via OAuth and does
+not require this.
 
 ---
 
@@ -154,7 +153,7 @@ Set environment variables from `infra/deploy/.env.production.example` in Coolify
 3. **Framework Preset:** Next.js (auto-detected)
 4. **Root Directory:** `apps/web`  ← important for monorepo
 5. **Build Command:** `pnpm build` (Vercel detects pnpm via `packageManager` field)
-6. **Output Directory:** `.next` (default)
+6. **Region:** `fra1` (Frankfurt)
 
 ### 6a. Add environment variables in Vercel
 
@@ -162,12 +161,9 @@ In Project → Settings → Environment Variables, add:
 
 | Variable | Value |
 |---|---|
-| `NEXT_PUBLIC_API_URL` | `https://api.yourdomain.com` |
-| `NEXT_PUBLIC_KEYCLOAK_URL` | `https://auth.yourdomain.com` |
-| `NEXT_PUBLIC_KEYCLOAK_REALM` | `invoice-platform` |
-| `NEXT_PUBLIC_KEYCLOAK_CLIENT_ID` | `invoice-web` |
-
-Or use **Vercel environment variable groups** (referenced as `@api_url` etc. in `vercel.json`).
+| `NEXT_PUBLIC_API_URL` | `https://<your-api>.up.railway.app` (or `api.yourdomain.com`) |
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://<project>.supabase.co` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Settings → API → anon/publishable key |
 
 ### 6b. Custom domain
 
@@ -177,29 +173,26 @@ Vercel → Domains → Add `app.yourdomain.com` → update DNS as shown.
 
 ## Step 7 — GitHub Actions Secrets
 
-In your GitHub repo → **Settings → Secrets and variables → Actions**,  
-add these repository secrets:
+In your GitHub repo → **Settings → Secrets and variables → Actions**, add:
 
 | Secret | Where to find |
 |---|---|
 | `VERCEL_TOKEN` | vercel.com → Account Settings → Tokens |
 | `VERCEL_ORG_ID` | vercel.com → Account Settings → General |
 | `VERCEL_PROJECT_ID` | Vercel project → Settings → General |
-| `COOLIFY_API_WEBHOOK` | Coolify → Service → Deployments → Webhook URL |
-| `COOLIFY_WORKER_WEBHOOK` | Coolify → Worker service webhook URL |
-| `COOLIFY_WEBHOOK_TOKEN` | Coolify → Settings → API → Token |
+
+CI (`.github/workflows/deploy.yml`) runs lint → test → build API/worker images
+(GHCR, tagged `:latest` + `:${{ github.sha }}` for rollback) → deploy web to
+Vercel. Railway deploys the API + worker itself on push to `main`.
 
 ---
 
 ## Step 8 — DNS Records
 
-Point all subdomains to the relevant services:
-
 | Record | Type | Value |
 |---|---|---|
 | `app.yourdomain.com` | CNAME | `cname.vercel-dns.com` |
-| `api.yourdomain.com` | A | `<Hetzner server IP>` |
-| `auth.yourdomain.com` | A | `<Hetzner server IP>` |
+| `api.yourdomain.com` | CNAME | Railway service domain (Settings → Networking) |
 
 ---
 
@@ -212,47 +205,39 @@ git push origin main
 ```
 
 GitHub Actions will:
-1. **check** job: typecheck all packages
-2. **test** job: run tests against postgres + redis service containers
-3. **deploy-web** job: deploy Next.js to Vercel
-4. **deploy-api** job: trigger Coolify to pull + redeploy API + Worker
+1. **check** — typecheck all packages
+2. **test** — run tests against postgres + redis service containers (+ integration via Testcontainers)
+3. **build-api / build-worker** — build + push images to GHCR
+4. **deploy-web** — deploy Next.js to Vercel
 
-On first deploy, the API container runs `prisma migrate deploy` before starting,  
-which applies both migrations:
-- `20260527000000_init` — all tables, indexes, FKs
-- `20260527000001_functions` — `next_invoice_number()` PL/pgSQL function
+Railway picks up the same push and redeploys the API + worker. On first deploy the
+API runs `prisma migrate deploy` before starting.
 
 ---
 
-## Keycloak Realm Setup (Quick Start)
+## Authentication (Supabase Auth)
 
-1. Browse to `https://auth.yourdomain.com/admin`
-2. Create realm: `invoice-platform`
-3. Create clients:
-   - `invoice-api` (confidential, bearer-only) — copy client secret to env
-   - `invoice-web` (public, PKCE) — add redirect URI `https://app.yourdomain.com/*`
-4. Create realm roles: `invoice-admin`, `invoice-accountant`, `invoice-viewer`
-5. Create mapper: User Attribute `tenant_id` → Token Claim `tenant_id`
+Supabase Auth is the active provider — there is no separate auth server to run.
+The API validates the Supabase JWT, extracting the user id and `tenantId`; every
+endpoint is protected by a global guard (opt out with `@Public()`), and every
+query still filters by `tenantId`. A legacy Keycloak path remains in the
+composite guard for migration only and is being retired — do not stand up a new
+Keycloak instance.
 
 ---
 
-## Maintenance
+## Company register sync (LV/LT)
+
+LV/LT search is backed by the Postgres `company_register` table with a `pg_trgm`
+GIN index — no Elasticsearch. Seed/refresh it from the government CSVs:
 
 ```bash
-# View logs (on Hetzner server)
-docker compose -f infra/deploy/docker-compose.prod.yml logs -f api
-
-# Manually trigger company sync
-docker compose -f infra/deploy/docker-compose.prod.yml exec api \
-  node -e "require('./dist/company/company.service').CompanyService"
-
-# Backup Elasticsearch index
-docker compose -f infra/deploy/docker-compose.prod.yml exec elasticsearch \
-  curl -X PUT http://localhost:9200/_snapshot/backup
-
-# Scale worker concurrency (no restart needed — env var)
-# Edit WORKER_CONCURRENCY in Coolify env → redeploy
+cd apps/api && pnpm sync:lv
+cd apps/api && pnpm sync:lt
 ```
+
+In production the worker runs these as nightly repeatable BullMQ jobs (LV 02:00,
+LT 03:00 UTC). FI (PRH) and EE (Äriregister) are live HTTP lookups, no sync.
 
 ---
 
@@ -260,8 +245,9 @@ docker compose -f infra/deploy/docker-compose.prod.yml exec elasticsearch \
 
 | Symptom | Check |
 |---|---|
-| API returns 502 | `docker logs invoice-platform-prod-api-1` — usually DB connection |
-| Migrations fail | Check `DIRECT_URL` (must be session pooler, port 5432) |
-| JWKS fetch fails | Keycloak URL reachable from API container? `docker exec api wget auth.yourdomain.com` |
-| ES index empty | Worker logs — check LV/LT CSV URLs are reachable |
-| Vercel build fails | Check `apps/web` root directory setting in Vercel project |
+| API won't boot in prod | Insecure default secrets — set strong `IMPERSONATION_SECRET` / `ARCHIVE_ENCRYPTION_KEY` (see `secret-guard.ts`) |
+| API returns 5xx | Railway service logs — usually `DATABASE_URL` / pooled connection |
+| Migrations fail | `DIRECT_URL` must be the session pooler (port 5432) |
+| Auth 401s | `SUPABASE_URL` set? JWKS reachable? token issuer matches `${SUPABASE_URL}/auth/v1` |
+| LV/LT search empty | Run `pnpm sync:lv` / `sync:lt`, or check the worker's nightly sync logs |
+| Vercel build fails | Check `apps/web` root directory setting in the Vercel project |
