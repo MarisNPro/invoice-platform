@@ -1,8 +1,4 @@
-import {
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreateRecurringInvoiceDto } from './dto/create-recurring-invoice.dto';
 import type { UpdateRecurringInvoiceDto } from './dto/update-recurring-invoice.dto';
@@ -73,9 +69,13 @@ export class RecurringInvoiceService {
   }
 
   private async findOwned(id: string, tenantId: string) {
-    const rec = await this.prisma.recurringInvoice.findFirst({ where: { id } });
+    // Scope the lookup by tenantId (rule #1) — a record owned by another tenant
+    // is indistinguishable from a non-existent one, so cross-tenant access
+    // returns 404 rather than leaking existence via a 403.
+    const rec = await this.prisma.recurringInvoice.findFirst({
+      where: { id, tenantId },
+    });
     if (!rec) throw new NotFoundException(`Recurring invoice ${id} not found`);
-    if (rec.tenantId !== tenantId) throw new ForbiddenException('Access denied');
     return rec;
   }
 }

@@ -37,6 +37,21 @@ const connection = buildBullConnection(REDIS_URL);
 async function main() {
   logger.log('starting…');
 
+  // Fail fast: never run in production with the insecure default archive key.
+  // Mirrors apps/api/src/config/secret-guard.ts (archiveKeyProblem) — the worker
+  // is a standalone process and cannot import from the API package. It encrypts
+  // cloud-archive OAuth tokens with ARCHIVE_ENCRYPTION_KEY; an unset, all-zeros,
+  // or malformed key makes those stored tokens effectively plaintext.
+  if (process.env['NODE_ENV'] === 'production') {
+    const key = process.env['ARCHIVE_ENCRYPTION_KEY'];
+    if (!key || key === '0'.repeat(64) || !/^[0-9a-fA-F]{64}$/.test(key)) {
+      logger.fatal(
+        'Refusing to start: ARCHIVE_ENCRYPTION_KEY is unset, all-zeros, or not 64 hex chars (openssl rand -hex 32).',
+      );
+      process.exit(1);
+    }
+  }
+
   // ── Company sync queue (LV/LT registry → Postgres company_registry) ───────
   const syncQueue = new Queue(QUEUE_COMPANY_SYNC, { connection });
   await registerRepeatableJobs(syncQueue);
