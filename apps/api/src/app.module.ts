@@ -6,7 +6,6 @@ import { TerminusModule } from '@nestjs/terminus';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './common/redis/redis.module';
-import { ElasticsearchModule } from './common/elasticsearch/elasticsearch.module';
 import { AuthModule } from './auth/auth.module';
 import { HealthController } from './health/health.controller';
 import { InvoiceModule } from './invoice/invoice.module';
@@ -49,7 +48,6 @@ import { FastifyThrottlerGuard } from './common/fastify-throttler.guard';
     // Core modules
     PrismaModule,
     RedisModule,
-    ElasticsearchModule,
     AuthModule,
     InvoiceModule,
     CompanyModule,

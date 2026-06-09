@@ -10,9 +10,14 @@ const fastifyHelmet    = require('@fastify/helmet')    as { default: unknown };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fastifyMultipart = require('@fastify/multipart') as { default: unknown };
 import { AppModule } from './app.module';
+import { assertProductionSecrets } from './config/secret-guard';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
+
+  // Fail fast: refuse to boot in production with insecure default secrets
+  // (IMPERSONATION_SECRET / ARCHIVE_ENCRYPTION_KEY). No-op outside production.
+  assertProductionSecrets();
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,

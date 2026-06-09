@@ -52,6 +52,7 @@ COPY packages/vat-engine    ./packages/vat-engine
 COPY packages/ubl-builder   ./packages/ubl-builder
 COPY packages/en16931       ./packages/en16931
 COPY packages/i18n          ./packages/i18n
+COPY packages/company-sync  ./packages/company-sync
 COPY apps/api               ./apps/api
 
 # Reinstall to wire workspace symlinks into the build tree
@@ -67,6 +68,7 @@ RUN pnpm --filter @invoice/vat-engine   run build
 RUN pnpm --filter @invoice/ubl-builder  run build
 RUN pnpm --filter @invoice/en16931      run build
 RUN pnpm --filter @invoice/i18n         run build
+RUN pnpm --filter @invoice/company-sync run build
 
 # Build NestJS API (tsc → apps/api/dist/)
 RUN pnpm --filter @invoice/api run build
@@ -110,6 +112,11 @@ COPY --from=builder --chown=nestjs:nodejs /app/packages/en16931/dist            
 COPY --from=builder --chown=nestjs:nodejs /app/packages/en16931/package.json      ./packages/en16931/package.json
 COPY --from=builder --chown=nestjs:nodejs /app/packages/i18n/dist               ./packages/i18n/dist
 COPY --from=builder --chown=nestjs:nodejs /app/packages/i18n/package.json         ./packages/i18n/package.json
+# company-sync has external runtime deps (axios, csv-parse) reached via its
+# node_modules symlinks — copy them like ubl-builder. The API imports it at boot.
+COPY --from=builder --chown=nestjs:nodejs /app/packages/company-sync/dist         ./packages/company-sync/dist
+COPY --from=builder --chown=nestjs:nodejs /app/packages/company-sync/package.json ./packages/company-sync/package.json
+COPY --from=builder --chown=nestjs:nodejs /app/packages/company-sync/node_modules ./packages/company-sync/node_modules
 
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/dist        ./apps/api/dist
 COPY --from=builder --chown=nestjs:nodejs /app/apps/api/prisma      ./apps/api/prisma

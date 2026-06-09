@@ -24,17 +24,42 @@ export interface CloudArchiveSyncJobData {
   tenantId:  string;
 }
 
-// ── AES decrypt (mirrors apps/api/src/archive/crypto.util.ts) ────────────────
+// ── AES-256-GCM crypto (mirrors apps/api/src/archive/crypto.util.ts) ─────────
+// The worker is a standalone process and cannot import from the API package, so
+// the authenticated-encryption logic is duplicated here. Keep both in sync.
 
-import { createDecipheriv } from 'crypto';
+import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 
+const GCM_IV_BYTES = 12;
+
+function toKey(hexKey: string): Buffer {
+  return Buffer.from(hexKey.replace(/[^0-9a-fA-F]/g, '').padEnd(64, '0').slice(0, 64), 'hex');
+}
+
+/** AES-256-GCM encrypt → `v2:iv_hex:authTag_hex:ciphertext_hex`. */
+function encryptToken(plaintext: string, hexKey: string): string {
+  const iv     = randomBytes(GCM_IV_BYTES);
+  const cipher = createCipheriv('aes-256-gcm', toKey(hexKey), iv);
+  const enc    = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const tag    = cipher.getAuthTag();
+  return `v2:${iv.toString('hex')}:${tag.toString('hex')}:${enc.toString('hex')}`;
+}
+
+/** Decrypt GCM (`v2:` format) with a legacy AES-256-CBC fallback. */
 function decryptToken(ciphertext: string, hexKey: string): string {
-  const sep  = ciphertext.indexOf(':');
+  if (ciphertext.startsWith('v2:')) {
+    const [, ivHex, tagHex, ctHex] = ciphertext.split(':');
+    if (!ivHex || !tagHex || !ctHex) throw new Error('Invalid ciphertext');
+    const decipher = createDecipheriv('aes-256-gcm', toKey(hexKey), Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+    return Buffer.concat([decipher.update(Buffer.from(ctHex, 'hex')), decipher.final()]).toString('utf8');
+  }
+
+  const sep = ciphertext.indexOf(':');
   if (sep === -1) throw new Error('Invalid ciphertext');
-  const iv      = Buffer.from(ciphertext.slice(0, sep), 'hex');
-  const enc     = Buffer.from(ciphertext.slice(sep + 1), 'hex');
-  const key     = Buffer.from(hexKey.replace(/[^0-9a-fA-F]/g, '').padEnd(64, '0').slice(0, 64), 'hex');
-  const decipher = createDecipheriv('aes-256-cbc', key, iv);
+  const iv       = Buffer.from(ciphertext.slice(0, sep), 'hex');
+  const enc      = Buffer.from(ciphertext.slice(sep + 1), 'hex');
+  const decipher = createDecipheriv('aes-256-cbc', toKey(hexKey), iv);
   return Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
 }
 
@@ -82,7 +107,7 @@ async function getValidToken(record: CloudArchive, encKey: string): Promise<stri
   await prisma.cloudArchive.update({
     where: { id: record.id },
     data: {
-      accessToken:    `refreshed:${data.access_token}`, // will be re-encrypted in a real key rotation
+      accessToken:    encryptToken(data.access_token, encKey), // authenticated-encrypt at rest (US-008)
       tokenExpiresAt: data.expires_in ? new Date(Date.now() + data.expires_in * 1000) : null,
     },
   }).catch(() => { /* non-fatal */ });

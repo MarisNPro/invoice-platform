@@ -1,13 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
-import { ElasticsearchService } from '../common/elasticsearch/elasticsearch.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { InjectRedis } from '../common/redis/redis.decorators';
 import type Redis from 'ioredis';
 import { firstValueFrom } from 'rxjs';
 import type {
   CompanyResult,
-  CompanyDocument,
   CountryCode,
   PrhV3Response,
   AriregisterAutocompleteResponse,
@@ -15,8 +14,12 @@ import type {
 
 const CACHE_TTL = 600; // seconds
 
-export const INDEX_LV = 'companies_lv';
-export const INDEX_LT = 'companies_lt';
+// pg_trgm word_similarity threshold for the `query <% name` operator. Unlike set
+// similarity(), word_similarity() scores the query against the best-matching
+// extent of the name and ignores the tail — so a prefix of a long name ranks
+// correctly for autocomplete instead of being penalised for its length. Sane
+// range 0.3–0.6.
+const REGISTER_WORD_SIMILARITY_THRESHOLD = 0.4;
 
 @Injectable()
 export class CompanyService {
@@ -27,7 +30,7 @@ export class CompanyService {
   constructor(
     private readonly http:   HttpService,
     private readonly config: ConfigService,
-    private readonly es:     ElasticsearchService,
+    private readonly prisma: PrismaService,
     @InjectRedis() private readonly redis: Redis,
   ) {
     this.prhUrl = config.get<string>('PRH_API_URL',         'https://avoindata.prh.fi/opendata-ytj-api/v3');
@@ -47,14 +50,14 @@ export class CompanyService {
     switch (country) {
       case 'FI': return this.searchFinland(q, limit);
       case 'EE': return this.searchEstonia(q, limit);
-      case 'LV': return this.searchElasticsearch(INDEX_LV, 'LV', q, limit);
-      case 'LT': return this.searchElasticsearch(INDEX_LT, 'LT', q, limit);
+      case 'LV': return this.searchRegistry('LV', q, limit);
+      case 'LT': return this.searchRegistry('LT', q, limit);
       default: {
         const [fi, ee, lv, lt] = await Promise.allSettled([
           this.searchFinland(q, limit),
           this.searchEstonia(q, limit),
-          this.searchElasticsearch(INDEX_LV, 'LV', q, limit),
-          this.searchElasticsearch(INDEX_LT, 'LT', q, limit),
+          this.searchRegistry('LV', q, limit),
+          this.searchRegistry('LT', q, limit),
         ]);
         return [
           ...(fi.status === 'fulfilled' ? fi.value : []),
@@ -150,11 +153,20 @@ export class CompanyService {
     }
   }
 
-  // ── Latvia / Lithuania — Elasticsearch ───────────────────────────────────
+  // ── Latvia / Lithuania — Postgres pg_trgm (company_registry) ─────────────
 
-  async searchElasticsearch(
-    index:   string,
-    country: string,
+  /**
+   * Word-similarity trigram search over the company_register table (pg_trgm).
+   * Uses the `query <% name` operator — GIN-accelerated by
+   * company_register_name_trgm_idx — ranked by word_similarity(query, name).
+   * word_similarity scores the query against the best-matching extent of the
+   * name (ignoring the tail), so typing a prefix of a long company name ranks it
+   * correctly for autocomplete (set similarity() would penalise its length).
+   * Replaces the former Elasticsearch companies_lv / companies_lt indexes
+   * (typo-tolerant).
+   */
+  async searchRegistry(
+    country: 'LV' | 'LT',
     query:   string,
     limit:   number,
   ): Promise<CompanyResult[]> {
@@ -163,31 +175,39 @@ export class CompanyService {
     if (cached) return JSON.parse(cached) as CompanyResult[];
 
     try {
-      const indexExists = await this.es.indexExists(index);
-      if (!indexExists) return [];
-
-      const response = await this.es.search<CompanyDocument>({
-        index,
-        size: limit,
-        query: {
-          match: {
-            name: {
-              query,
-              analyzer: 'name_search_analyzer',
-            },
-          },
-        },
-        sort: [{ _score: { order: 'desc' } }],
+      // SET LOCAL the word_similarity threshold for the `<%` operator, then run
+      // the GIN-accelerated word-similarity search in the same transaction.
+      const rows = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(
+          `SET LOCAL pg_trgm.word_similarity_threshold = ${REGISTER_WORD_SIMILARITY_THRESHOLD}`,
+        );
+        return tx.$queryRaw<Array<Record<string, string | null>>>`
+          SELECT id, country, name, "regNumber", "vatNumber", "legalForm",
+                 address, status, source
+          FROM company_register
+          WHERE country = ${country}
+            AND ${query} <% name
+          ORDER BY word_similarity(${query}, name) DESC
+          LIMIT ${limit}
+        `;
       });
 
-      const results = response.hits.hits
-        .filter((h) => h._source)
-        .map<CompanyResult>((h) => h._source as CompanyResult);
+      const results = rows.map<CompanyResult>((r) => ({
+        id:        String(r.id),
+        country:   String(r.country).trim(),
+        name:      String(r.name),
+        regNumber: String(r.regNumber),
+        vatNumber: r.vatNumber ?? undefined,
+        legalForm: r.legalForm ?? undefined,
+        address:   r.address   ?? undefined,
+        status:    String(r.status),
+        source:    String(r.source),
+      }));
 
       await this.redis.setex(cacheKey, CACHE_TTL, JSON.stringify(results));
       return results;
     } catch (err) {
-      this.logger.warn(`ES search [${index}] failed for "${query}": ${(err as Error).message}`);
+      this.logger.warn(`Registry search [${country}] failed for "${query}": ${(err as Error).message}`);
       return [];
     }
   }

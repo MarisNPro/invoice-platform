@@ -46,6 +46,7 @@ jobs:
           pnpm --filter @invoice/ubl-builder  run build
           pnpm --filter @invoice/en16931      run build
           pnpm --filter @invoice/i18n         run build
+          pnpm --filter @invoice/company-sync run build
           pnpm --filter @invoice/ui           run build
 
       - name: Typecheck all packages
@@ -123,9 +124,15 @@ jobs:
           pnpm --filter @invoice/ubl-builder  run build
           pnpm --filter @invoice/en16931      run build
           pnpm --filter @invoice/i18n         run build
+          pnpm --filter @invoice/company-sync run build
 
       - name: Run tests
         run: pnpm turbo test
+
+      # Integration tests spin up their own Postgres via Testcontainers (Docker is
+      # available on ubuntu-latest). Covers the company_register pg_trgm search.
+      - name: Run integration tests (Testcontainers — real Postgres)
+        run: pnpm --filter @invoice/api test:integration
 
 # ── Job 3: Build and push API image → GHCR ─────────────────────────────────────
   build-api:
@@ -155,7 +162,11 @@ jobs:
           context: .
           file: apps/api/Dockerfile
           push: true
-          tags: ghcr.io/marisnpro/invoice-platform/invoice-api:latest
+          # Immutable per-commit tag enables rollback to any prior build;
+          # :latest is a convenience pointer to the newest main build.
+          tags: |
+            ghcr.io/marisnpro/invoice-platform/invoice-api:latest
+            ghcr.io/marisnpro/invoice-platform/invoice-api:${{ github.sha }}
 
 # ── Job 4: Build and push Worker image → GHCR ──────────────────────────────────
   build-worker:
@@ -185,7 +196,11 @@ jobs:
           context: .
           file: apps/worker/Dockerfile
           push: true
-          tags: ghcr.io/marisnpro/invoice-platform/invoice-worker:latest
+          # Immutable per-commit tag enables rollback to any prior build;
+          # :latest is a convenience pointer to the newest main build.
+          tags: |
+            ghcr.io/marisnpro/invoice-platform/invoice-worker:latest
+            ghcr.io/marisnpro/invoice-platform/invoice-worker:${{ github.sha }}
 
 # ── Job 5: Deploy web → Vercel ──────────────────────────────────────────────────
   deploy-web:
@@ -193,7 +208,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [check, test]
     if: github.ref == 'refs/heads/main'
-    continue-on-error: true
+    # No continue-on-error: a real deploy failure must fail the pipeline (R-06).
+    # When VERCEL_TOKEN is unset the job exits cleanly with a visible warning —
+    # that is a deliberate config gate, not a swallowed failure.
 
     steps:
       - uses: actions/checkout@v5
@@ -209,5 +226,5 @@ jobs:
             npm install -g vercel
             vercel --prod --token "$VERCEL_TOKEN" --yes
           else
-            echo "VERCEL_TOKEN not set, skipping deploy"
+            echo "::warning::VERCEL_TOKEN not set — skipping web deploy"
           fi
