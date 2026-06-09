@@ -11,14 +11,13 @@
 ## Epic: Production Infrastructure & Deployment 🟡
 *Goal: real users can reach the product. Active in Sprint 7 (Week 8).*
 
-### US-001 — As a founder I want the API + worker deployed to Hetzner/Coolify so that the backend runs in production
+### US-001 — As a founder I want the API + worker deployed to Railway so that the backend runs in production
 - Acceptance criteria:
-  - API + Worker images built and pushed to GHCR
-  - Coolify pulls images and runs both containers on Hetzner CPX22 (`167.233.19.5`)
+  - API + Worker deploy on Railway from `railway.api.json` / `railway.worker.json` (DOCKERFILE builder), EU West
   - `/api/v1/health` returns `ok` for postgres + redis in production
-  - All required env vars populated in Coolify
+  - All required env vars populated on the Railway api + worker services
 - Story points: 5
-- Status: In Progress *(images ✅, containers not fully live — env vars partial)*
+- Status: In Progress *(config-as-code committed; Railway env vars to be populated — see SPRINT-LOG)*
 
 ### US-002 — As a beta user I want the web frontend hosted so that I can use the product in a browser
 - Acceptance criteria:
@@ -28,13 +27,13 @@
 - Story points: 3
 - Status: Backlog *(Vercel not connected)*
 
-### US-003 — As the platform I want production authentication via Keycloak so that real tenants are isolated by verified JWTs
+### US-003 — As the platform I want production authentication via Supabase Auth so that real tenants are isolated by verified JWTs
 - Acceptance criteria:
-  - Keycloak realm imported with `invoice-api` client + roles
-  - `KEYCLOAK_*` env vars set; `KeycloakJwtGuard` verifies real tokens
+  - `SUPABASE_URL` set; `SupabaseJwtGuard` verifies real tokens via the derived JWKS
+  - `tenantId` extracted from the validated JWT; every query still filters by it
   - `x-dev-tenant-id` bypass impossible in `NODE_ENV=production`
 - Story points: 5
-- Status: In Progress *(deferred to backlog for beta — running on Keycloak-optional guard, gated to non-production)*
+- Status: In Progress *(Supabase Auth is the active provider in code; Keycloak retired to a migration-only fallback. Remaining: set `SUPABASE_URL` in Railway + verify prod tokens)*
 
 ### US-004 — As a developer I want CI/CD to lint, test, build and deploy on every push so that releases are repeatable
 - Acceptance criteria:
@@ -42,7 +41,7 @@
   - Failing stage blocks deploy (no silent `continue-on-error` on critical jobs)
   - Immutable image tags for rollback
 - Story points: 3
-- Status: In Progress *(Lint/Test/Build green; deploy jobs `continue-on-error`, only `:latest` tag — hardening pending)*
+- Status: Done *(Lint → Test → Build API → Build Worker → Deploy; `deploy-web` no longer `continue-on-error`; API + worker images tagged `:latest` + `:${{ github.sha }}` for rollback — R-06)*
 
 ### US-005 — As an operator I want a smoke-test checklist + first beta invite so that launch is verified
 - Acceptance criteria:
@@ -59,23 +58,23 @@
 ### US-006 — As the platform I want all secret material to fail-fast on insecure defaults so that production cannot run with guessable keys
 - Acceptance criteria:
   - `IMPERSONATION_SECRET` and `ARCHIVE_ENCRYPTION_KEY` rejected if unset/default in production
-  - Strong values set in Coolify for api + worker
+  - Strong values set in Railway for api + worker
 - Story points: 3
-- Status: Backlog *(config wired; fail-fast code + values pending — gated on DB migration check)*
+- Status: In Progress *(fail-fast implemented + tested — API boot via `config/secret-guard.ts`, worker boot mirrors the archive-key check; remaining: set strong values in Railway env for api + worker)*
 
 ### US-007 — As a tenant I want every DB query scoped to my tenant so that cross-tenant data is unreachable
 - Acceptance criteria:
   - All `findFirst`/`findMany`/mutations include `tenantId` at the query level
   - `recurring-invoice.service.ts` bare `findFirst({ where: { id } })` scoped
 - Story points: 2
-- Status: Backlog *(mitigated by post-fetch ownership check; rule #1 violation to fix)*
+- Status: Done *(`findOwned` now scopes by `{ id, tenantId }`; cross-tenant access returns 404, no longer leaking existence via 403; service spec added)*
 
 ### US-008 — As a user I want my cloud-archive tokens authenticated-encrypted at rest so that a DB read cannot reveal them
 - Acceptance criteria:
   - AES-256-**GCM** (authenticated) replaces AES-256-CBC
   - Refresh tokens never stored unencrypted (fix `archive-sync.job.ts` `refreshed:` plaintext path)
 - Story points: 3
-- Status: Backlog
+- Status: Done *(GCM with versioned `v2:` format + legacy-CBC read fallback in `crypto.util.ts` and the worker's mirror; worker refresh now re-encrypts instead of storing `refreshed:<plaintext>`; tamper-detection + backward-compat covered by `crypto.util.spec.ts`)*
 
 ### US-009 — As a superadmin I want suspicious activity alerts so that anomalous access is surfaced
 - Acceptance criteria:
@@ -249,7 +248,7 @@
 - Status: Done
 
 ### US-033 — As a user I want company autocomplete so that I fill counterparties instantly
-- Acceptance criteria: FI (PRH) + EE (Äriregister) live; LV/LT via Elasticsearch (445k); Redis-cached
+- Acceptance criteria: FI (PRH) + EE (Äriregister) live; LV/LT via Postgres `pg_trgm` `company_register` (445k); Redis-cached
 - Story points: 5
 - Status: Done
 

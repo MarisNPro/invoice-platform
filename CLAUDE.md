@@ -156,14 +156,13 @@ After editing `schema.prisma`, run `db:generate` before building. In production,
 
 Copy `infra/deploy/.env.production.example` → `.env` and fill in values. The API loads `.env.local` then `.env` from the repo root (two levels up from `apps/api`).
 
-Key variables: `DATABASE_URL`, `DIRECT_URL`, `REDIS_URL`, `KEYCLOAK_URL`, `KEYCLOAK_REALM`, `KEYCLOAK_CLIENT_ID`, `KEYCLOAK_CLIENT_SECRET`, `S3_ENDPOINT`, `S3_BUCKET`, `RESEND_API_KEY`, `ANTHROPIC_API_KEY`.
+Key variables: `DATABASE_URL`, `DIRECT_URL`, `REDIS_URL`, `SUPABASE_URL` (drives the Supabase Auth JWT issuer + JWKS), `IMPERSONATION_SECRET`, `ARCHIVE_ENCRYPTION_KEY` (both fail-fast in production if unset/default — see `apps/api/src/config/secret-guard.ts`), `S3_ENDPOINT`, `S3_BUCKET`, `RESEND_API_KEY`, `ANTHROPIC_API_KEY`. (`KEYCLOAK_*` are legacy/optional — the composite guard keeps a Keycloak fallback for migration only.)
 
 ## Deployment
 
 - **Web** → Vercel (Frankfurt), root directory `apps/web`
-- **API on Railway (EU West); worker deployment pending** — API built from `apps/api/Dockerfile`, auto-deploys on push to `main`. Worker image is built (`apps/worker/Dockerfile`) but its Railway runtime is not yet confirmed.
-- **Worker:** no automated CI deploy until a Railway worker service exists. GHCR images still build; redeploy manually via Coolify until Hetzner teardown.
-- **CI/CD** → GitHub Actions: typecheck → test → deploy-web on push to `main`
+- **API + Worker** → Railway (EU West), config-as-code in `railway.api.json` / `railway.worker.json` (DOCKERFILE builder). Both auto-deploy on push to `main`; API healthcheck `/api/v1/health`. (Hetzner + Coolify retired — do not reintroduce.)
+- **CI/CD** → GitHub Actions: lint → test → build API + Worker images (GHCR, tagged `:latest` + `:${{ github.sha }}` for rollback) → deploy-web (Vercel) on push to `main`. Railway deploys the API + worker itself on push.
 
 ---
 
